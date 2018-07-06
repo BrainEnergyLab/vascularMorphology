@@ -36,7 +36,7 @@ findExps = findFolders(fname, '*3Dcoords.xlsx');
 for a = 1:size(findExps,2)
     
     %find the local exp dir
-    [expDir,dmapFile]=fileparts(findExps{a});
+    [expDir,~]=fileparts(findExps{a});
     
     %% load the tif file with the processed images:
     %find the dmap file which to get the image dimension info
@@ -160,9 +160,18 @@ for a = 1:size(findExps,2)
                 %matlab for the corresponding coords
                 
                 %get diameter by multiplying by 2 and by pixel sz in um
-                DMapCoordSortedDiam{b}{c}(d,:) = (2* ...
-                    DMap(xyzcoord_ttt(d,2),xyzcoord_ttt(d,1), ...
-                    xyzcoord_ttt(d,3)))*pxsz_um;
+                %check if value of the pixel is even or not
+                pxVal=DMap(xyzcoord_ttt(d,2),xyzcoord_ttt(d,1), ...
+                        xyzcoord_ttt(d,3)); 
+                if floor(pxVal/2) == pxVal/2
+                    DMapCoordSortedDiam{b}{c}(d,:) = (2 * ...
+                        DMap(xyzcoord_ttt(d,2),xyzcoord_ttt(d,1), ...
+                        xyzcoord_ttt(d,3)))*pxsz_um;
+                else %odd number, need to subtract one
+                    DMapCoordSortedDiam{b}{c}(d,:) = (2 * ...
+                        DMap(xyzcoord_ttt(d,2),xyzcoord_ttt(d,1), ...
+                        xyzcoord_ttt(d,3)))-1*pxsz_um;
+                end
                 
                 %get the z coordinate in um, in case want to sort vessels by
                 %depth etc
