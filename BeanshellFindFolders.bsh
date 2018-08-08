@@ -1,0 +1,118 @@
+import ij.IJ; //Import this so that we can use imageJ to open the image
+import ij.gui.GenericDialog;
+import ij.ImagePlus;
+import ij.WindowManager;
+
+//This is basically declaring a function
+//Argsin are the directory to search, the substring to search for, and an arraylist declared outside the function to fill with matching locations
+public static listFilesAndFilesSubDirectories(String directoryName, String substring, ArrayList output) {
+
+	//Here we declare our folder as a file variable for our directory and create a file array of the files within folder
+	File folder = new File(directoryName);
+	File [] listOfFiles = folder.listFiles();
+	
+	//Loop through the files in the file list
+	for (File file:listOfFiles) {
+		//If the file we're checking is a file and not a directory
+		if (file.isFile()) {
+			//And if it contains the substring we're interested in within its full path
+			if(file.getAbsolutePath().contains(substring)) {
+				//We store the full path in the output ArrayList;
+				String stringForm = file.getAbsolutePath();
+				File fileForm = new File(stringForm);
+				fileLocations.add(fileForm);
+				//imp=IJ.openImage(file.getAbsolutePath);
+				//imp.show();
+			}
+		//If the file we're checking is a directory, then we run the whole thing on that directory
+		} else if (file.isDirectory()) {
+			listFilesAndFilesSubDirectories(file.getAbsolutePath(), substring, fileLocations);           
+		}
+	}
+
+	//Here we convert out ArrayList to a string array and return it
+	File[] arrayForm = fileLocations.toArray(new File[0]);
+	//String [] test = new String[fileLocations.size()];
+	//test=fileLocations.toArray(test);
+	//System.out.println(fileLocations.size());
+	//System.out.println(test.length);
+	//String [] test = fileLocations.toArray(new String[fileLocations.size()]);
+	return arrayForm;
+}
+
+//Example inputs for the function (called a method in java?)
+String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
+String toFind = "WideFOV";
+
+//Declare the arrraylist to fill outside the function
+ArrayList fileLocations = new ArrayList();
+
+System.out.println("Start");
+File [] output = listFilesAndFilesSubDirectories(dir, toFind, fileLocations);
+System.out.println("End");
+
+//Here we create a dialog box for user input
+//choiceArray is a list of channels the user can select
+//channelNames are the associated substrings with those channels
+String [] choiceArray =  {"1", "2", "3", "4"};
+String [] channelNames = {"ch_1", "ch_2", "ch_3", "ch_4"};
+
+GenericDialog userInputs = new GenericDialog("User Inputs");
+userInputs.addNumericField("Number of frames per plane: ", 0, 0);
+userInputs.addChoice("Which channel to use", choiceArray, "2");
+userInputs.showDialog();
+
+int choice = userInputs.getNextChoiceIndex();
+int FperZ = userInputs.getNextNumber();
+String channel = channelNames[choice];
+
+//Here we go through our list of file locations and open ones that include ch_2 (i.e. they are TexasRed)
+
+for (File file:output) {
+	if(file.getAbsolutePath().contains(channel)) {
+		imp=IJ.openImage(file.getAbsolutePath());
+		String name = imp.getTitle();
+		
+		//imp.show();
+		//String [] test = WindowManager.getImageTitles();
+		//System.out.println(test[0]);
+		//System.out.println(name);
+		//here = WindowManager.getImage(name);
+		//System.exit();	
+		
+		//IJ.run(imp, "MultiStackReg", ""+name+" action_1=Align file_1=[] stack_2=None action_2=Ignore file_2=[] transformation=Translation");
+		IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+FperZ+"");
+		
+		String avgName = "AVG_"+name;
+		avg = WindowManager.getImage(avgName);
+		
+		IJ.run(avg, "8-bit", "");
+		IJ.run(avg, "Median 3D...", "x=2 y=2 z=2");
+		avg.show();
+		new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
+		avgNameSmooth = avg.duplicate();
+		String dupName = avgNameSmooth.getTitle();
+		IJ.run(avgNameSmooth, "Auto Threshold", "method=Otsu white stack use_stack_histogram");
+		IJ.run(avgNameSmooth, "Skeletonize (2D/3D)", "");
+		//avgNameSmooth.show();
+		//IJ.run(avgNameSmooth, "Analyze Skeleton (2D/3D)", "prune=[lowest intensity voxel] show display original_image="+dupName+"");
+		IJ.run(avgNameSmooth, "Analyze Skeleton (2D/3D)", "prune=[shortest branch] show display");
+		
+		//test.close();
+
+		tifIndex = dupName.indexOf(".tif");
+		String skeletonName = dupName.substring(0, tifIndex) + "-labeled-skeletons";
+		skelWindow = WindowManager.getImage(skeletonName);
+		skelWindow.close();
+
+		//String [] test = WindowManager.getImageTitles();
+		//System.out.println(skeletonName);
+		//System.out.println(test[0]);
+		//System.out.println(test[1]);
+		//System.out.println(test[2]);
+		//System.out.println(test[3]);
+		//System.out.println(test[4]);
+		
+		System.exit();	
+		}
+}
