@@ -1,9 +1,9 @@
 import ij.IJ; //Import this so that we can use imageJ to open the image
-import ij.gui.GenericDialog;
-import ij.gui.WaitForUserDialog;
-import ij.ImagePlus;
-import ij.WindowManager;
-import ij.measure;
+import ij.gui.GenericDialog; //Import so we can create dialog boxes
+import ij.gui.WaitForUserDialog; //Import to allow us to wait for user input
+import ij.ImagePlus; //Import to allow us to create or alter images
+import ij.WindowManager; //Import to allow us to manager windows
+import ij.measure; //Import so we can measure things
 
 //This is basically declaring a function
 //Argsin are the directory to search, the substring to search for, and an arraylist declared outside the function to fill with matching locations
@@ -43,13 +43,14 @@ public static listFilesAndFilesSubDirectories(String directoryName, String subst
 }
 
 //Example inputs for the function (called a method in java?)
-//String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
-String dir = "/Users/Devin/Downloads";
+String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
+//String dir = "/Users/Devin/Downloads";
 String toFind = "WideFOV";
 
 //Declare the arrraylist to fill outside the function
 ArrayList fileLocations = new ArrayList();
 
+//Here we return the output of the method into a file array
 System.out.println("Start");
 File [] output = listFilesAndFilesSubDirectories(dir, toFind, fileLocations);
 System.out.println("End");
@@ -65,12 +66,12 @@ userInputs.addNumericField("Number of frames per plane: ", 0, 0);
 userInputs.addChoice("Which channel to use", choiceArray, "2");
 userInputs.showDialog();
 
+//Retrive the choices as integers, or as a string in the case of channel
 int choice = userInputs.getNextChoiceIndex();
 int FperZ = userInputs.getNextNumber();
 String channel = channelNames[choice];
 
-//Here we go through our list of file locations and open ones that include ch_2 (i.e. they are TexasRed)
-
+//Here we go through our list of file locations and open ones that include ch_2 (i.e. they are TexasRed) if selected channel is 2
 for (File file:output) {
 	if(file.getAbsolutePath().contains(channel)) {
 		imp=IJ.openImage(file.getAbsolutePath());
@@ -83,42 +84,64 @@ for (File file:output) {
 		//here = WindowManager.getImage(name);
 		//System.exit();	
 		
+		//Here we register the open image then grouped z project it according to the user input of how many frames per Z were taken
 		//IJ.run(imp, "MultiStackReg", ""+name+" action_1=Align file_1=[] stack_2=None action_2=Ignore file_2=[] transformation=Translation");
 		IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+FperZ+"");
 		
+		//Here we get the averaged image and set it as avg
 		String avgName = "AVG_"+name;
 		avg = WindowManager.getImage(avgName);
-
+		
+		//Turn avg into an 8 bit image and median smooth it
 		IJ.run(avg, "8-bit", "");
 		IJ.run(avg, "Median 3D...", "x=2 y=2 z=2");
 		
-		pxlWidth = avg.Calibration.pixelWidth;
-		pxlDepth = avg.Calibration.pixelDepth;
-		unit = avg.Calibration.getUnit();
+		//Create a dialog to ask the user whether they want to manually remove ROIs
+		GenericDialog userInputs = new GenericDialog("Cleaning image");
+		userInputs.addCheckbox("Do you want to manually remove ROIs from the image?", false);
+		userInputs.showDialog();
+
+		//Get the checkbox (which returns a vector so we have to get an index of it)
+		roiChoice = userInputs.getCheckboxes();
+		removeROIs = roiChoice.get(0);
+		//test = String.valueOf(removeROIs);
+		//IJ.log(test);
 		
-		avg.show();
-		new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
-		TestROI = avg.getRoi();
-		roiStats = TestROI.getStatistics();
-		twoDArea = roiStats.area;
-		
-		int startSlice = avg.getSlice();
-		new WaitForUserDialog("ROI selection", "Set the slice where you want the ROI to end").show();
-		int endSlice = avg.getSlice();
-		
-		sliceArea=endSlice-startSlice+1;
-		
-		IJ.log(Integer.toString(startSlice) + " " + Integer.toString(endSlice));
-		for (int clearSlice = startSlice; clearSlice <= endSlice; clearSlice++) {
-			avg.setSlice(clearSlice);
-			IJ.run(avg, "Clear", "slice");
-			//IJ.log(Integer.toString(clearSlice));
+		//If the checkbox was true, then enter the loop for removing bits of the image
+		if (removeROIs.getState() == true) {
+			
+			//Get the pixel sizes and unit of calibration of the avg image
+			pxlWidth = avg.Calibration.pixelWidth;
+			pxlDepth = avg.Calibration.pixelDepth;
+			unit = avg.Calibration.getUnit();
+			
+			//Show the avg image then ask the user for input
+			avg.show();
+			new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
+			
+			//Get the roi drawn as well as the number of the slice set - and get the area of the roi
+			TestROI = avg.getRoi();
+			roiStats = TestROI.getStatistics();
+			twoDArea = roiStats.area;
+			int startSlice = avg.getSlice();
+
+			//Get the slice chosen by the user as the end and calculate difference
+			new WaitForUserDialog("ROI selection", "Set the slice where you want the ROI to end").show();
+			int endSlice = avg.getSlice();
+			sliceArea=endSlice-startSlice+1;
+			
+			//Loop through the slices from start to end, each time clearing the area within the ROI
+			IJ.log(Integer.toString(startSlice) + " " + Integer.toString(endSlice));
+			for (int clearSlice = startSlice; clearSlice <= endSlice; clearSlice++) {
+				avg.setSlice(clearSlice);
+				IJ.run(avg, "Clear", "slice");
+				//IJ.log(Integer.toString(clearSlice));
+			}
+	
+			//Need to store roi list as array, and also maybe coordinates? Basically turn into arrays then can store in results table
+	
+			IJ.log("2D Area: " + IJ.d2s(twoDArea, 9) + " Slice Area: " + Integer.toString(sliceArea) + " Pixel Width: " + IJ.d2s(pxlWidth, 9) + " Pixel Depth: " + IJ.d2s(pxlDepth, 9) + " Unit: " + unit);
 		}
-
-		//Need to store roi list as array, and also maybe coordinates? Basically turn into arrays then can store in results table
-
-		IJ.log("2D Area: " + IJ.d2s(twoDArea, 9) + " Slice Area: " + Integer.toString(sliceArea) + " Pixel Width: " + IJ.d2s(pxlWidth, 9) + " Pixel Depth: " + IJ.d2s(pxlDepth, 9) + " Unit: " + unit);
-		
 		System.exit();	
 		avgNameSmooth = avg.duplicate();
 		String dupName = avgNameSmooth.getTitle();
