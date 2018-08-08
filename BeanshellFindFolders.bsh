@@ -1,5 +1,6 @@
 import ij.IJ; //Import this so that we can use imageJ to open the image
 import ij.gui.GenericDialog;
+import ij.gui.WaitForUserDialog;
 import ij.ImagePlus;
 import ij.WindowManager;
 
@@ -41,7 +42,8 @@ public static listFilesAndFilesSubDirectories(String directoryName, String subst
 }
 
 //Example inputs for the function (called a method in java?)
-String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
+//String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
+String dir = "/Users/Devin/Downloads";
 String toFind = "WideFOV";
 
 //Declare the arrraylist to fill outside the function
@@ -90,6 +92,10 @@ for (File file:output) {
 		IJ.run(avg, "Median 3D...", "x=2 y=2 z=2");
 		avg.show();
 		new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
+		TestROI = imp.getROI();
+		int startSlice = imp.getSlice();
+		new WaitForUserDialog("ROI selection", "Set the slice where you want the ROI to end").show();
+		int endSlice = imp.getSlice();
 		avgNameSmooth = avg.duplicate();
 		String dupName = avgNameSmooth.getTitle();
 		IJ.run(avgNameSmooth, "Auto Threshold", "method=Otsu white stack use_stack_histogram");
