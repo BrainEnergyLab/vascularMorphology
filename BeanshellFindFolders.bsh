@@ -3,6 +3,7 @@ import ij.gui.GenericDialog;
 import ij.gui.WaitForUserDialog;
 import ij.ImagePlus;
 import ij.WindowManager;
+import ij.measure;
 
 //This is basically declaring a function
 //Argsin are the directory to search, the substring to search for, and an arraylist declared outside the function to fill with matching locations
@@ -87,15 +88,38 @@ for (File file:output) {
 		
 		String avgName = "AVG_"+name;
 		avg = WindowManager.getImage(avgName);
-		
+
 		IJ.run(avg, "8-bit", "");
 		IJ.run(avg, "Median 3D...", "x=2 y=2 z=2");
+		
+		pxlWidth = avg.Calibration.pixelWidth;
+		pxlDepth = avg.Calibration.pixelDepth;
+		unit = avg.Calibration.getUnit();
+		
 		avg.show();
 		new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
-		TestROI = imp.getROI();
-		int startSlice = imp.getSlice();
+		TestROI = avg.getRoi();
+		roiStats = TestROI.getStatistics();
+		twoDArea = roiStats.area;
+		
+		int startSlice = avg.getSlice();
 		new WaitForUserDialog("ROI selection", "Set the slice where you want the ROI to end").show();
-		int endSlice = imp.getSlice();
+		int endSlice = avg.getSlice();
+		
+		sliceArea=endSlice-startSlice+1;
+		
+		IJ.log(Integer.toString(startSlice) + " " + Integer.toString(endSlice));
+		for (int clearSlice = startSlice; clearSlice <= endSlice; clearSlice++) {
+			avg.setSlice(clearSlice);
+			IJ.run(avg, "Clear", "slice");
+			//IJ.log(Integer.toString(clearSlice));
+		}
+
+		//Need to store roi list as array, and also maybe coordinates? Basically turn into arrays then can store in results table
+
+		IJ.log("2D Area: " + IJ.d2s(twoDArea, 9) + " Slice Area: " + Integer.toString(sliceArea) + " Pixel Width: " + IJ.d2s(pxlWidth, 9) + " Pixel Depth: " + IJ.d2s(pxlDepth, 9) + " Unit: " + unit);
+		
+		System.exit();	
 		avgNameSmooth = avg.duplicate();
 		String dupName = avgNameSmooth.getTitle();
 		IJ.run(avgNameSmooth, "Auto Threshold", "method=Otsu white stack use_stack_histogram");
