@@ -43,8 +43,8 @@ public static listFilesAndFilesSubDirectories(String directoryName, String subst
 }
 
 //Example inputs for the function (called a method in java?)
-String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
-//String dir = "/Users/Devin/Downloads";
+//String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
+String dir = "/Users/Devin/Downloads";
 String toFind = "WideFOV";
 
 //Declare the arrraylist to fill outside the function
@@ -106,48 +106,104 @@ for (File file:output) {
 		removeROIs = roiChoice.get(0);
 		//test = String.valueOf(removeROIs);
 		//IJ.log(test);
+
+		//Create dynamic arrays to fill with the count of ROIs we clear as well as their areas and depths
+		ArrayList roiNamesArray = new ArrayList();
+		ArrayList twoDAreaArray = new ArrayList();
+		ArrayList sliceAreaArray = new ArrayList();
+
+		//Create variable to count how many ROIs we clear
+		int count = 1;
+
+		//Get the pixel sizes and unit of calibration of the avg image
+		pxlWidth = avg.Calibration.pixelWidth;
+		pxlDepth = avg.Calibration.pixelDepth;
+		unit = avg.Calibration.getUnit();
+
+		//Get the area of the whole image in pixels, and it's slice number
+		wholeArea=avg.getStatistics().area;
+		totalSlices=avg.getNSlices();
 		
 		//If the checkbox was true, then enter the loop for removing bits of the image
-		if (removeROIs.getState() == true) {
-			
-			//Get the pixel sizes and unit of calibration of the avg image
-			pxlWidth = avg.Calibration.pixelWidth;
-			pxlDepth = avg.Calibration.pixelDepth;
-			unit = avg.Calibration.getUnit();
+		while (removeROIs.getState() == true) {
 			
 			//Show the avg image then ask the user for input
 			avg.show();
 			new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
 			
 			//Get the roi drawn as well as the number of the slice set - and get the area of the roi
-			TestROI = avg.getRoi();
-			roiStats = TestROI.getStatistics();
-			twoDArea = roiStats.area;
 			int startSlice = avg.getSlice();
 
 			//Get the slice chosen by the user as the end and calculate difference
 			new WaitForUserDialog("ROI selection", "Set the slice where you want the ROI to end").show();
 			int endSlice = avg.getSlice();
-			sliceArea=endSlice-startSlice+1;
+
+			//If the endslice is set before the start then we go back to the start of the loop and show an error message
+			if(endSlice<startSlice) {
+				
+				new WaitForUserDialog("Slice error", "End slice was set before the start slice").show();
+				
+				} else {
+
+				//Otherwise we get the roi area and slice depth
+				TestROI = avg.getRoi();
+				roiStats = TestROI.getStatistics();
+				twoDArea = roiStats.area;
+
+				sliceArea=endSlice-startSlice+1;
+				
+				//Loop through the slices from start to end, each time clearing the area within the ROI
+				IJ.log(Integer.toString(startSlice) + " " + Integer.toString(endSlice));
+				for (int clearSlice = startSlice; clearSlice <= endSlice; clearSlice++) {
+					avg.setSlice(clearSlice);
+					IJ.run(avg, "Clear", "slice");
+					//IJ.log(Integer.toString(clearSlice));
+				}
+
+				//Add our count, area, and depth to our dyanmic arrays
+				roiNamesArray.add(count);
+				twoDAreaArray.add(twoDArea);
+				sliceAreaArray.add(sliceArea);
+		
+		
+				//IJ.log("2D Area: " + IJ.d2s(twoDArea, 9) + " Slice Area: " + Integer.toString(sliceArea) + " Pixel Width: " + IJ.d2s(pxlWidth, 9) + " Pixel Depth: " + IJ.d2s(pxlDepth, 9) + " Unit: " + unit);
 			
-			//Loop through the slices from start to end, each time clearing the area within the ROI
-			IJ.log(Integer.toString(startSlice) + " " + Integer.toString(endSlice));
-			for (int clearSlice = startSlice; clearSlice <= endSlice; clearSlice++) {
-				avg.setSlice(clearSlice);
-				IJ.run(avg, "Clear", "slice");
-				//IJ.log(Integer.toString(clearSlice));
+				//Create a dialog to ask the user whether they want to manually remove any more ROIs - if yes we repeat the loop
+				GenericDialog userInputs = new GenericDialog("Cleaning image");
+				userInputs.addCheckbox("Do you want to manually remove another ROI from the image?", false);
+				userInputs.showDialog();
+	
+				//Get the checkbox (which returns a vector so we have to get an index of it)
+				roiChoice = userInputs.getCheckboxes();
+				removeROIs = roiChoice.get(0);
+				//test = String.valueOf(removeROIs);
+				//IJ.log(test);
+
+				//Increase the value of count by 1
+				count++;
 			}
-	
-			//Need to store roi list as array, and also maybe coordinates? Basically turn into arrays then can store in results table
-	
-			IJ.log("2D Area: " + IJ.d2s(twoDArea, 9) + " Slice Area: " + Integer.toString(sliceArea) + " Pixel Width: " + IJ.d2s(pxlWidth, 9) + " Pixel Depth: " + IJ.d2s(pxlDepth, 9) + " Unit: " + unit);
 		}
-		System.exit();	
+
+		//Display the arrays from ROI clearing
+		System.out.println("roiNamesArray contains: " + roiNamesArray.toString());  
+		System.out.println("twoDAreaArray contains: " + twoDAreaArray.toString());  
+		System.out.println("sliceAreaArray contains: " + sliceAreaArray.toString());  
+
+		//Ask the user to check the display - for debugging
+		new WaitForUserDialog("Check prints", "Check the values printed").show();
+
+		//Clear the selection of the last ROI
+		IJ.run(avg, "Select None", "");
+		
 		avgNameSmooth = avg.duplicate();
 		String dupName = avgNameSmooth.getTitle();
 		IJ.run(avgNameSmooth, "Auto Threshold", "method=Otsu white stack use_stack_histogram");
+		
+		//Issue here with thresholding - not working for all images, need to build in some code here so the user can pick the thresholding that works best
+		avgNameSmooth.show();
+		new WaitForUserDialog("Check prints", "Check the thresh").show();
 		IJ.run(avgNameSmooth, "Skeletonize (2D/3D)", "");
-		//avgNameSmooth.show();
+		avgNameSmooth.show();
 		//IJ.run(avgNameSmooth, "Analyze Skeleton (2D/3D)", "prune=[lowest intensity voxel] show display original_image="+dupName+"");
 		IJ.run(avgNameSmooth, "Analyze Skeleton (2D/3D)", "prune=[shortest branch] show display");
 		
@@ -156,7 +212,7 @@ for (File file:output) {
 		tifIndex = dupName.indexOf(".tif");
 		String skeletonName = dupName.substring(0, tifIndex) + "-labeled-skeletons";
 		skelWindow = WindowManager.getImage(skeletonName);
-		skelWindow.close();
+		//skelWindow.close();
 
 		//String [] test = WindowManager.getImageTitles();
 		//System.out.println(skeletonName);
