@@ -1,6 +1,7 @@
 import ij.IJ; //Import this so that we can use imageJ to open the image
 import ij.gui.GenericDialog; //Import so we can create dialog boxes
 import ij.gui.WaitForUserDialog; //Import to allow us to wait for user input
+import ij.gui.NonBlockingGenericDialog; //Import to allow us to create non blocking dialogs
 import ij.ImagePlus; //Import to allow us to create or alter images
 import ij.WindowManager; //Import to allow us to manager windows
 import ij.measure; //Import so we can measure things
@@ -146,8 +147,8 @@ public static roiRemoval(String imageTitle) {
 }
 
 //Example inputs for the function (called a method in java?)
-//String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
-String dir = "/Users/Devin/Downloads";
+String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
+//String dir = "/Users/Devin/Downloads";
 String toFind = "WideFOV";
 
 //Declare the arrraylist to fill outside the function
@@ -222,8 +223,6 @@ for (File file:output) {
 		//This runs the try all action for the auto threshold method
 		IJ.run(threshTest, "Auto Threshold", "method=[Try all] white stack");
 		threshStack = WindowManager.getImage("Stack");
-		
-		System.exit();	
 
 		String [] threshChoice =  {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"};
 		String [] threshNames = {"Default", "Huang", "Huang2", "Intermodes", "IsoData", "Li", "MaxEntropy", "Mean", "MinError(I)", "Minimum", "Moments", "Otsu", "Percentile", "RenyiEntropy", "Shanbhag", "Triangle"};
@@ -238,10 +237,10 @@ for (File file:output) {
 		String threshSelected = threshNames[choice];
 		
 		goodThresh = userInputs.getCheckboxes();
-		threshChoice = goodThresh.get(0);
+		goodThreshChoice = goodThresh.get(0);	
 
-		if(threshChoice.getState() == true) {
-			GenericDialog userInputs = new GenericDialog("Thresholding issues");
+		if(goodThreshChoice.getState() == true) {
+			NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Thresholding issues");
 			userInputs.addCheckbox("Do you want to remove more noise from the image?", false);
 			userInputs.addCheckbox("Do you want to threshold manually?", false);
 
@@ -251,6 +250,7 @@ for (File file:output) {
 			redoNoiseRemoval = checkChoices.get(0);
 			manuallyThreshold = checkChoices.get(1);
 
+			//We now need to implement whatever comes as a result of these choices - loop through this sequence so we can constantly edit the image?
 			
 			}
 	
