@@ -4,11 +4,11 @@ import ij.gui.WaitForUserDialog; //Import to allow us to wait for user input
 import ij.ImagePlus; //Import to allow us to create or alter images
 import ij.WindowManager; //Import to allow us to manager windows
 import ij.measure; //Import so we can measure things
-import ij.plugin; //Import so we can create substacks using the duplicator
+import ij.plugin.Duplicator; //Import so we can create substacks using the duplicator
 
 //This is basically declaring a function
 //Argsin are the directory to search, the substring to search for, and an arraylist declared outside the function to fill with matching locations
-public static listFilesAndFilesSubDirectories(String directoryName, String substring, ArrayList output) {
+public static listFilesAndFilesSubDirectories(String directoryName, String substring, ArrayList fileLocations) {
 
 	//Here we declare our folder as a file variable for our directory and create a file array of the files within folder
 	File folder = new File(directoryName);
@@ -43,9 +43,111 @@ public static listFilesAndFilesSubDirectories(String directoryName, String subst
 	return arrayForm;
 }
 
+//This asks the user if they wish to remove ROIs from the image, and outputs the area of ROI removed and over what range of slices
+//Argsin are just the title of the image to be ROI edited
+public static roiRemoval(String imageTitle) {
+
+	//Here we create a 2D arraylist to dynamically store out roiNames, 2D area, and slice area	
+	ArrayList[][] table = new ArrayList[1][3];
+	table[0][0] = new ArrayList(); // add another ArrayList object to [0,0] this is for roiNames
+	table[0][1] = new ArrayList(); // add another ArrayList object to [0,1] this is for twoDArea
+	table[0][2] = new ArrayList(); // add another ArrayList object to [0,2] this is for sliceArea
+	
+	//Create a dialog to ask the user whether they want to manually remove ROIs
+	GenericDialog userInputs = new GenericDialog("Cleaning image");
+	userInputs.addCheckbox("Do you want to manually remove ROIs from the image?", false);
+	userInputs.showDialog();
+
+	//Get the checkbox (which returns a vector so we have to get an index of it)
+	roiChoice = userInputs.getCheckboxes();
+	removeROIs = roiChoice.get(0);
+	//test = String.valueOf(removeROIs);
+	//IJ.log(test);
+
+	//Create variable to count how many ROIs we clear
+	int count = 1;
+
+	//Set the image we're working with to a variable
+	avg = WindowManager.getImage(imageTitle);
+		
+	//If the checkbox was true, then enter the loop for removing bits of the image
+	while (removeROIs.getState() == true) {
+			
+		//Show the avg image then ask the user for input
+		avg.show();
+		new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
+			
+		//Get the roi drawn as well as the number of the slice set - and get the area of the roi
+		int startSlice = avg.getSlice();
+
+		//Get the slice chosen by the user as the end and calculate difference
+		new WaitForUserDialog("ROI selection", "Set the slice where you want the ROI to end").show();
+		int endSlice = avg.getSlice();
+
+		//If the endslice is set before the start then we go back to the start of the loop and show an error message
+		if(endSlice<startSlice) {
+				
+			new WaitForUserDialog("Slice error", "End slice was set before the start slice").show();
+			
+			} else {
+
+			//Otherwise we get the roi area and slice depth
+			TestROI = avg.getRoi();
+			roiStats = TestROI.getStatistics();
+			twoDArea = roiStats.area;
+
+			sliceArea=endSlice-startSlice+1;
+				
+			//Loop through the slices from start to end, each time clearing the area within the ROI
+			IJ.log(Integer.toString(startSlice) + " " + Integer.toString(endSlice));
+			for (int clearSlice = startSlice; clearSlice <= endSlice; clearSlice++) {
+				avg.setSlice(clearSlice);
+				IJ.run(avg, "Clear", "slice");
+				//IJ.log(Integer.toString(clearSlice));
+			}
+
+			//Add our count, area, and depth to our dyanmic arrays
+			table[0][0].add(count);
+			table[0][1].add(twoDArea);
+			table[0][2].add(sliceArea);
+		
+			//IJ.log("2D Area: " + IJ.d2s(twoDArea, 9) + " Slice Area: " + Integer.toString(sliceArea) + " Pixel Width: " + IJ.d2s(pxlWidth, 9) + " Pixel Depth: " + IJ.d2s(pxlDepth, 9) + " Unit: " + unit);
+			
+			//Create a dialog to ask the user whether they want to manually remove any more ROIs - if yes we repeat the loop
+			GenericDialog userInputs = new GenericDialog("Cleaning image");
+			userInputs.addCheckbox("Do you want to manually remove another ROI from the image?", false);
+			userInputs.showDialog();
+	
+			//Get the checkbox (which returns a vector so we have to get an index of it)
+			roiChoice = userInputs.getCheckboxes();
+			removeROIs = roiChoice.get(0);
+			//test = String.valueOf(removeROIs);
+			//IJ.log(test);
+
+			//Increase the value of count by 1
+			count++;
+		}
+	}
+
+	//Display the arrays from ROI clearing
+	System.out.println("roiNamesArray contains: " + table[0][0].toString());  
+	System.out.println("twoDAreaArray contains: " + table[0][1].toString());  
+	System.out.println("sliceAreaArray contains: " + table[0][2].toString());  
+
+	//Ask the user to check the display - for debugging
+	new WaitForUserDialog("Check prints", "Check the values printed").show();
+
+	//Clear the selection of the last ROI
+	IJ.run(avg, "Select None", "");
+
+	//Return our 2D arraylist
+	return table;
+	
+}
+
 //Example inputs for the function (called a method in java?)
-String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
-//String dir = "/Users/Devin/Downloads";
+//String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
+String dir = "/Users/Devin/Downloads";
 String toFind = "WideFOV";
 
 //Declare the arrraylist to fill outside the function
@@ -96,121 +198,61 @@ for (File file:output) {
 		//Turn avg into an 8 bit image and median smooth it
 		IJ.run(avg, "8-bit", "");
 		//IJ.run(avg, "Median 3D...", "x=2 y=2 z=2");
-		
-		//Create a dialog to ask the user whether they want to manually remove ROIs
-		GenericDialog userInputs = new GenericDialog("Cleaning image");
-		userInputs.addCheckbox("Do you want to manually remove ROIs from the image?", false);
-		userInputs.showDialog();
-
-		//Get the checkbox (which returns a vector so we have to get an index of it)
-		roiChoice = userInputs.getCheckboxes();
-		removeROIs = roiChoice.get(0);
-		//test = String.valueOf(removeROIs);
-		//IJ.log(test);
-
-		//Create dynamic arrays to fill with the count of ROIs we clear as well as their areas and depths
-		ArrayList roiNamesArray = new ArrayList();
-		ArrayList twoDAreaArray = new ArrayList();
-		ArrayList sliceAreaArray = new ArrayList();
-
-		//Create variable to count how many ROIs we clear
-		int count = 1;
 
 		//Get the pixel sizes and unit of calibration of the avg image
 		pxlWidth = avg.Calibration.pixelWidth;
 		pxlDepth = avg.Calibration.pixelDepth;
 		unit = avg.Calibration.getUnit();
-
+	
 		//Get the area of the whole image in pixels, and it's slice number
 		wholeArea=avg.getStatistics().area;
 		totalSlices=avg.getNSlices();
-		
-		//If the checkbox was true, then enter the loop for removing bits of the image
-		while (removeROIs.getState() == true) {
-			
-			//Show the avg image then ask the user for input
-			avg.show();
-			new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
-			
-			//Get the roi drawn as well as the number of the slice set - and get the area of the roi
-			int startSlice = avg.getSlice();
 
-			//Get the slice chosen by the user as the end and calculate difference
-			new WaitForUserDialog("ROI selection", "Set the slice where you want the ROI to end").show();
-			int endSlice = avg.getSlice();
+		//Here we run the roi removal on our averaged, smoothed image, and output a table with the roi details
+		ArrayList[][] roiDetails = roiRemoval(avgName);
 
-			//If the endslice is set before the start then we go back to the start of the loop and show an error message
-			if(endSlice<startSlice) {
-				
-				new WaitForUserDialog("Slice error", "End slice was set before the start slice").show();
-				
-				} else {
+		//Here we duplicate our smoothed, roi cleaned image
+		//avgNameSmooth = avg.duplicate();
+		//String dupName = avgNameSmooth.getTitle();
 
-				//Otherwise we get the roi area and slice depth
-				TestROI = avg.getRoi();
-				roiStats = TestROI.getStatistics();
-				twoDArea = roiStats.area;
+		//Here we create a 20 slice substack of our smoothed, cleaned image, so that we can try out the auto thresholds on it
+		threshTest = new Duplicator().run(avg, 1, 20);
+		threshTest.show();
 
-				sliceArea=endSlice-startSlice+1;
-				
-				//Loop through the slices from start to end, each time clearing the area within the ROI
-				IJ.log(Integer.toString(startSlice) + " " + Integer.toString(endSlice));
-				for (int clearSlice = startSlice; clearSlice <= endSlice; clearSlice++) {
-					avg.setSlice(clearSlice);
-					IJ.run(avg, "Clear", "slice");
-					//IJ.log(Integer.toString(clearSlice));
-				}
-
-				//Add our count, area, and depth to our dyanmic arrays
-				roiNamesArray.add(count);
-				twoDAreaArray.add(twoDArea);
-				sliceAreaArray.add(sliceArea);
-		
-		
-				//IJ.log("2D Area: " + IJ.d2s(twoDArea, 9) + " Slice Area: " + Integer.toString(sliceArea) + " Pixel Width: " + IJ.d2s(pxlWidth, 9) + " Pixel Depth: " + IJ.d2s(pxlDepth, 9) + " Unit: " + unit);
-			
-				//Create a dialog to ask the user whether they want to manually remove any more ROIs - if yes we repeat the loop
-				GenericDialog userInputs = new GenericDialog("Cleaning image");
-				userInputs.addCheckbox("Do you want to manually remove another ROI from the image?", false);
-				userInputs.showDialog();
-	
-				//Get the checkbox (which returns a vector so we have to get an index of it)
-				roiChoice = userInputs.getCheckboxes();
-				removeROIs = roiChoice.get(0);
-				//test = String.valueOf(removeROIs);
-				//IJ.log(test);
-
-				//Increase the value of count by 1
-				count++;
-			}
-		}
-
-		//Display the arrays from ROI clearing
-		System.out.println("roiNamesArray contains: " + roiNamesArray.toString());  
-		System.out.println("twoDAreaArray contains: " + twoDAreaArray.toString());  
-		System.out.println("sliceAreaArray contains: " + sliceAreaArray.toString());  
-
-		//Ask the user to check the display - for debugging
-		new WaitForUserDialog("Check prints", "Check the values printed").show();
-
-		//Clear the selection of the last ROI
-		IJ.run(avg, "Select None", "");
-		
-		avgNameSmooth = avg.duplicate();
-		String dupName = avgNameSmooth.getTitle();
-
-		threshTest = new Duplicator().run(avgNameSmooth, 1, 20);
+		//This runs the try all action for the auto threshold method
 		IJ.run(threshTest, "Auto Threshold", "method=[Try all] white stack");
+		threshStack = WindowManager.getImage("Stack");
+		
+		System.exit();	
 
 		String [] threshChoice =  {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"};
 		String [] threshNames = {"Default", "Huang", "Huang2", "Intermodes", "IsoData", "Li", "MaxEntropy", "Mean", "MinError(I)", "Minimum", "Moments", "Otsu", "Percentile", "RenyiEntropy", "Shanbhag", "Triangle"};
 		
 		NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Auto Threshold Choice");
 		userInputs.addChoice("Which panel worked the best?", threshChoice, "1");
+		userInputs.addCheckbox("Tick if none of them are any good", false);
+		
 		userInputs.showDialog();
 
 		int choice = userInputs.getNextChoiceIndex();
 		String threshSelected = threshNames[choice];
+		
+		goodThresh = userInputs.getCheckboxes();
+		threshChoice = goodThresh.get(0);
+
+		if(threshChoice.getState() == true) {
+			GenericDialog userInputs = new GenericDialog("Thresholding issues");
+			userInputs.addCheckbox("Do you want to remove more noise from the image?", false);
+			userInputs.addCheckbox("Do you want to threshold manually?", false);
+
+			userInputs.showDialog();
+
+			checkChoices = userInputs.getCheckboxes();
+			redoNoiseRemoval = checkChoices.get(0);
+			manuallyThreshold = checkChoices.get(1);
+
+			
+			}
 	
 		IJ.run(avgNameSmooth, "Auto Threshold", "method="+threshSelected+" white stack");
 		
