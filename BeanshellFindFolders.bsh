@@ -6,6 +6,7 @@ import ij.ImagePlus; //Import to allow us to create or alter images
 import ij.WindowManager; //Import to allow us to manager windows
 import ij.measure; //Import so we can measure things
 import ij.plugin.Duplicator; //Import so we can create substacks using the duplicator
+import ij.process.ImageProcessor //Import so we can invert the LUT after thresholding
 
 //This is basically declaring a function
 //Argsin are the directory to search, the substring to search for, and an arraylist declared outside the function to fill with matching locations
@@ -209,6 +210,8 @@ for (File file:output) {
 		wholeArea=avg.getStatistics().area;
 		totalSlices=avg.getNSlices();
 
+		//System.exit();	
+
 		//Here we run the roi removal on our averaged, smoothed image, and output a table with the roi details
 		ArrayList[][] roiDetails = roiRemoval(avgName);
 
@@ -224,31 +227,68 @@ for (File file:output) {
 		IJ.run(threshTest, "Auto Threshold", "method=[Try all] white stack");
 		threshStack = WindowManager.getImage("Stack");
 
+		//These string arrays are for choosing which thresholding method to use
 		String [] threshChoice =  {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"};
 		String [] threshNames = {"Default", "Huang", "Huang2", "Intermodes", "IsoData", "Li", "MaxEntropy", "Mean", "MinError(I)", "Minimum", "Moments", "Otsu", "Percentile", "RenyiEntropy", "Shanbhag", "Triangle"};
 		
+		//Create a non-blocking dialog so the user can still check the image whilst choosing
 		NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Auto Threshold Choice");
 		userInputs.addChoice("Which panel worked the best?", threshChoice, "1");
 		userInputs.addCheckbox("Tick if none of them are any good", false);
 		
 		userInputs.showDialog();
 
+		//Close the stack of threshold test
+		threshStack.close();
+
+		//Get the choices from the dialog box
 		int choice = userInputs.getNextChoiceIndex();
 		String threshSelected = threshNames[choice];
 		
 		goodThresh = userInputs.getCheckboxes();
 		goodThreshChoice = goodThresh.get(0);	
 
+		//If the user has selected that the automatic thresholding is no good
 		if(goodThreshChoice.getState() == true) {
+
+			//Close the threshold test image
+			threshTest.close();
+
+			//Ask the user if they want to clean up the image more, and if they want to manually threshold
 			NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Thresholding issues");
 			userInputs.addCheckbox("Do you want to remove more noise from the image?", false);
 			userInputs.addCheckbox("Do you want to threshold manually?", false);
 
 			userInputs.showDialog();
 
+			//Get the choices
 			checkChoices = userInputs.getCheckboxes();
 			redoNoiseRemoval = checkChoices.get(0);
 			manuallyThreshold = checkChoices.get(1);
+
+			//If chosen to remove more noise, run the roiRemoval and get out the roi info
+			if(redoNoiseRemoval.getState() == true) {
+				ArrayList[][] roiDetailsBadThresh = roiRemoval(avgName);	
+			}
+
+			//If we need to manually threshold, run it
+			if(manuallyThreshold.getState() == true) {
+				IJ.setAutoThreshold(avg, "Default");
+				new WaitForUserDialog("Manual thresholding", "Manually threshold the image then proceed").show();
+
+				//If after thresholding the image has an inverted LUT, we flip it
+				if(avg.isInvertedLut() == true) {
+					IJ.run(avg, "Invert LUT", "");
+				}
+
+				//Now we check that the image foreground and background are correctly set
+				new WaitForUserDialog("Check image", "Make sure that vessels are in white on a black background, then proceed").show();
+				
+			}
+			
+			//Need to now run through the autothresholding again if the user chose not to manually threshold
+
+			System.exit();	
 
 			//We now need to implement whatever comes as a result of these choices - loop through this sequence so we can constantly edit the image?
 			
