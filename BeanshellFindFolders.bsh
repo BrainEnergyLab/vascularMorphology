@@ -105,7 +105,7 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 			//IJ.log("2D Area: " + IJ.d2s(twoDArea, 9) + " Slice Area: " + Integer.toString(sliceArea) + " Pixel Width: " + IJ.d2s(pxlWidth, 9) + " Pixel Depth: " + IJ.d2s(pxlDepth, 9) + " Unit: " + unit);
 			
 			//Create a dialog to ask the user whether they want to manually remove any more ROIs - if yes we repeat the loop
-			GenericDialog userInputs = new GenericDialog("Cleaning image");
+			NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Cleaning image");
 			userInputs.addCheckbox("Do you want to manually remove another ROI from the image?", false);
 			userInputs.showDialog();
 	
@@ -204,9 +204,148 @@ public static returningValues autoThreshTryAll(String imageTitle) {
 			
 }
 
+//Function for manual thresholding of an image avg
+public static manualThresholding(avg) {
+
+	//Start the manual thresholding commands and wait for the user to complete it
+	IJ.setAutoThreshold(avg, "Default");
+	new WaitForUserDialog("Manual thresholding", "Manually threshold the image then proceed").show();
+	//If after thresholding the image has an inverted LUT, we flip it
+	if(avg.isInvertedLut() == true) {
+		IJ.run(avg, "Invert LUT", "");
+	}
+	//Now we check that the image foreground and background are correctly set
+	new WaitForUserDialog("Check image", "Make sure that vessels are in white on a black background, then proceed").show();
+}
+
+//Function for the entire thresholding and roi removal process of an image, avg
+public static thresholdingGrandFunction(avg) {
+
+	//Get the pixel sizes and unit of calibration of the avg image
+	pxlWidth = avg.Calibration.pixelWidth;
+	pxlDepth = avg.Calibration.pixelDepth;
+	unit = avg.Calibration.getUnit();
+	
+	//Get the area of the whole image in pixels, and it's slice number
+	wholeArea=avg.getStatistics().area;
+	totalSlices=avg.getNSlices();
+
+	//Create a dialog to ask the user whether they want to manually remove ROIs
+	NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Cleaning image");
+	userInputs.addCheckbox("Do you want to manually remove ROIs from the image?", false);
+	userInputs.showDialog();
+	
+	//Get the checkbox (which returns a vector so we have to get an index of it)
+	roiChoice = userInputs.getCheckboxes();
+	removeROIs = roiChoice.get(0);
+	//test = String.valueOf(removeROIs);
+
+	//Here we run the roi removal on our averaged, smoothed image, and output a table with the roi details
+	ArrayList[][] roiDetails = roiRemoval(avgName, removeROIs);
+
+	//Run the autoThreshTryAll function to try out all the auto thresh techniques and see which one works best, return the choice and whether it worked
+	autoThreshOutput = autoThreshTryAll(avgName);
+
+	String threshChoice = autoThreshOutput.getThreshChoice();
+	Checkbox goodThreshChoice = autoThreshOutput.getGoodThresh(); 
+
+	//Print these values, to check
+	IJ.log(threshChoice);
+
+	if(goodThreshChoice.getState() == true) {
+		IJ.log("true");
+	} else {
+		IJ.log("false");
+	}
+
+	//If the user says the autothresholding is fine, then run it
+	if(goodThreshChoice.getState() == false) {
+		IJ.run(avg, "Auto Threshold", "method="+threshChoice+" white stack use_stack_histogram");
+	}
+
+
+//Can cut this bit out and replace it with our new big loop that includes the 4 options
+
+		
+	//If the user has selected that the automatic thresholding is no good
+	while(goodThreshChoice.getState() == true) {
+
+		//Ask the user if they want to clean up the image more, and if they want to manually threshold
+		NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Thresholding issues");
+		userInputs.addCheckbox("Do you want to remove more noise from the image?", false);
+		userInputs.addCheckbox("Do you want to threshold manually?", false);
+
+		userInputs.showDialog();
+
+		//Get the choices
+		checkChoices = userInputs.getCheckboxes();
+		redoNoiseRemoval = checkChoices.get(0);
+		manuallyThreshold = checkChoices.get(1);
+
+		//If the user doesn't want to manually threshold the image
+		if(manuallyThreshold.getState() == false) {
+
+			//If the user wants to remove more noise
+			if(redoNoiseRemoval.getState() == true) {
+
+				//Issue with doing more ROI clearing - if they overlap we're overcounting the area...
+		
+				//Run the roi removal function and add the output to the current existing output
+				ArrayList[][] roiDetailsBadThresh = roiRemoval(avgName, redoNoiseRemoval);	
+	
+				roiDetails[0][0].addAll(roiDetailsBadThresh[0][0]);
+				roiDetails[0][1].addAll(roiDetailsBadThresh[0][1]);
+				roiDetails[0][2].addAll(roiDetailsBadThresh[0][2]);
+
+			}
+
+			//Run the automatic thresholding function and get the outputs
+			autoThreshOutLoop = autoThreshTryAll(avgName);
+			String threshChoiceLoop = autoThreshOutLoop.getThreshChoice();
+			Checkbox goodThreshChoiceLoop = autoThreshOutLoop.getGoodThresh();
+
+			//If the user is now happy with the thresholding, then run it - the while condition will then be set to false and the loop will terminate
+			if(goodThreshChoiceLoop.getState() == false) {
+
+				roiFresh = avg.duplicate();
+				IJ.run(avg, "Auto Threshold", "method="+threshChoiceLoop+" white stack use_stack_histogram");
+				goodThreshChoice.setState(false);
+			
+			}
+
+		//If the user selected manual thresholding
+		} else if (manuallyThreshold.getState() == true) {
+
+			//If the user selected roi removal
+			if(redoNoiseRemoval.getState() == true) {
+
+				//Run the roi removal function and add it to the existing output
+				ArrayList[][] roiDetailsBadThresh = roiRemoval(avgName, redoNoiseRemoval);	
+	
+				roiDetails[0][0].addAll(roiDetailsBadThresh[0][0]);
+				roiDetails[0][1].addAll(roiDetailsBadThresh[0][1]);
+				roiDetails[0][2].addAll(roiDetailsBadThresh[0][2]);
+
+			}
+
+			roiFresh = avg.duplicate();
+
+			manualThresholding(avg);
+
+			//Once manual thresholding is complete, we set the while condition to false and exit the loop
+			goodThreshChoice.setState(false);
+
+		}
+
+	}
+
+	return roiDetails;
+
+}
+
 //Example inputs for the function (called a method in java?)
-//String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
-String dir = "/Users/Devin/Downloads";
+String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
+//String dir = "/Users/Devin/Downloads";
 String toFind = "WideFOV";
 
 //Declare the arrraylist to fill outside the function
@@ -258,136 +397,132 @@ for (File file:output) {
 		IJ.run(avg, "8-bit", "");
 		IJ.run(avg, "Median 3D...", "x=2 y=2 z=2");
 
-		//Get the pixel sizes and unit of calibration of the avg image
-		pxlWidth = avg.Calibration.pixelWidth;
-		pxlDepth = avg.Calibration.pixelDepth;
-		unit = avg.Calibration.getUnit();
-	
-		//Get the area of the whole image in pixels, and it's slice number
-		wholeArea=avg.getStatistics().area;
-		totalSlices=avg.getNSlices();
+		babyFresh = avg.duplicate();
 
-		//System.exit();	
-
-		//Create a dialog to ask the user whether they want to manually remove ROIs
-		GenericDialog userInputs = new GenericDialog("Cleaning image");
-		userInputs.addCheckbox("Do you want to manually remove ROIs from the image?", false);
-		userInputs.showDialog();
-	
-		//Get the checkbox (which returns a vector so we have to get an index of it)
-		roiChoice = userInputs.getCheckboxes();
-		removeROIs = roiChoice.get(0);
-		//test = String.valueOf(removeROIs);
-		//IJ.log(test);
-
-		//Here we run the roi removal on our averaged, smoothed image, and output a table with the roi details
-		ArrayList[][] roiDetails = roiRemoval(avgName, removeROIs);
-
-		//Here we duplicate our smoothed, roi cleaned image
-		//avgNameSmooth = avg.duplicate();
-		//String dupName = avgNameSmooth.getTitle();
-
-		//Run the autoThreshTryAll function to try out all the auto thresh techniques and see which one works best, return the choice and whether it worked
-		autoThreshOutput = autoThreshTryAll(avgName);
-
-		String threshChoice = autoThreshOutput.getThreshChoice();
-		Checkbox goodThreshChoice = autoThreshOutput.getGoodThresh(); 
-
-		//Print these values, to check
-		IJ.log(threshChoice);
-
-		if(goodThreshChoice.getState() == true) {
-			IJ.log("true");
-		} else {
-			IJ.log("false");
-		}
-
-		//If the user says the autothresholding is fine, then run it
-		if(goodThreshChoice.getState() == false) {
-			IJ.run(avg, "Auto Threshold", "method="+threshChoice+" white stack use_stack_histogram");
-		}
+		ArrayList[][] roiDetails = thresholdingGrandFunction(avg);
 		
-		//If the user has selected that the automatic thresholding is no good
-		while(goodThreshChoice.getState() == true) {
+		//Ask the user if they want to clean up the image more, and if they want to manually threshold
+		NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Thresholding satisfactory");
+		userInputs.addCheckbox("Happy with the threshold?", false);
+		userInputs.showDialog();
 
-			//Ask the user if they want to clean up the image more, and if they want to manually threshold
-			NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Thresholding issues");
-			userInputs.addCheckbox("Do you want to remove more noise from the image?", false);
-			userInputs.addCheckbox("Do you want to threshold manually?", false);
+		getChoices = userInputs.getCheckboxes();
+		threshHappy = getChoices.get(0);
 
+		while(threshHappy.getState() == false) {
+
+			String [] choiceArray = {"Start from the beginning - remove all ROI clearances and thresholding","Remove more ROIs", "Manually threshold the ROI cleared image", "Try a different automated thresholding technique"};
+			
+			NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Thresholding satisfactory");
+			userInputs.addChoice("Watchu wanna do 'bout it?", choiceArray, "Start from the beginning - remove all ROI clearances and thresholding");
 			userInputs.showDialog();
 
-			//Get the choices
-			checkChoices = userInputs.getCheckboxes();
-			redoNoiseRemoval = checkChoices.get(0);
-			manuallyThreshold = checkChoices.get(1);
+			int choice = userInputs.getNextChoiceIndex();
 
-			//If the user doesn't want to manually threshold the image
-			if(manuallyThreshold.getState() == false) {
+			avg.Close();
+			String name = roiFresh.getTitle();
 
-				//If the user wants to remove more noise
-				if(redoNoiseRemoval.getState() == true) {
+			if(choice == 3) {
 
-					//Issue with doing more ROI clearing - if they overlap we're overcounting the area...
-		
-					//Run the roi removal function and add the output to the current existing output
-					ArrayList[][] roiDetailsBadThresh = roiRemoval(avgName, redoNoiseRemoval);	
-	
-					roiDetails[0][0].addAll(roiDetailsBadThresh[0][0]);
-					roiDetails[0][1].addAll(roiDetailsBadThresh[0][1]);
-					roiDetails[0][2].addAll(roiDetailsBadThresh[0][2]);
+				backup = roiFresh.duplicate();
+				autoThreshFinal = autoThreshTryAll(name);
+				String threshChoiceLoop = autoThreshFinal.getThreshChoice();
+				Checkbox goodThreshChoiceLoop = autoThreshFinal.getGoodThresh();
 
-				}
-
-				//Run the automatic thresholding function and get the outputs
-				autoThreshOutLoop = autoThreshTryAll(avgName);
-				String threshChoiceLoop = autoThreshOutLoop.getThreshChoice();
-				Checkbox goodThreshChoiceLoop = autoThreshOutLoop.getGoodThresh();
-
-				//If the user is now happy with the thresholding, then run it - the while condition will then be set to false and the loop will terminate
 				if(goodThreshChoiceLoop.getState() == false) {
+					threshHappy.setState(true);
+				} else {
+					avg=roiFresh;
+					backup.setTitle(name);
+					roiFresh=backup;
+				}
+			}
+			
+			if(choice == 2) {
 
-					IJ.run(avg, "Auto Threshold", "method="+threshChoiceLoop+" white stack use_stack_histogram");
-					goodThreshChoice.setState(false);
+				backup = roiFresh.duplicate();
 				
+				manualThresholding(roiFresh);
+
+				NonBlockingGenericDialog manualThresholdingBox = new NonBlockingGenericDialog("Manual Thresholding");
+				manualThresholdingBox.addCheckbox("Happy with the manual threshold?", false);
+				manualThresholdingBox.showDialog();
+
+				manualCheckbox = manualThresholdingBox.getCheckboxes();
+				manualHappy = manualCheckbox.get(0);
+
+				if(manualHappy.getState() == true) {				
+					threshHappy.setState(true);	
+				} else {
+					avg=roiFresh;
+					backup.setTitle(name);
+					roiFresh=backup;
 				}
+			}
+			
+			if(choice == 1) {
 
-			//If the user selected manual thresholding
-			} else if (manuallyThreshold.getState() == true) {
-
-				//If the user selected roi removal
-				if(redoNoiseRemoval.getState() == true) {
-
-					//Run the roi removal function and add it to the existing output
-					ArrayList[][] roiDetailsBadThresh = roiRemoval(avgName, redoNoiseRemoval);	
+				backup = roiFresh.duplicate();
+				
+				NonBlockingGenericDialog test = new NonBlockingGenericDialog("Test");
+				test.addCheckbox("Test", true);
+				testOut1=test.getCheckboxes();
+				testOut=testOut1.get(0);
+				testOut.setState(true);
+				
+				ArrayList[][] roiDetailsMore = roiRemoval(name, testOut);	
 	
-					roiDetails[0][0].addAll(roiDetailsBadThresh[0][0]);
-					roiDetails[0][1].addAll(roiDetailsBadThresh[0][1]);
-					roiDetails[0][2].addAll(roiDetailsBadThresh[0][2]);
+				roiDetails[0][0].addAll(roiDetailsMore[0][0]);
+				roiDetails[0][1].addAll(roiDetailsMore[0][1]);
+				roiDetails[0][2].addAll(roiDetailsMore[0][2]);
 
+				NonBlockingGenericDialog roiRemovalRedo = new NonBlockingGenericDialog("Manual Thresholding");
+				roiRemovalRedo.addCheckbox("Happy with the ROI removal?", false);
+				roiRemovalRedo.showDialog();
+
+				roiRemovalIndex = roiRemovalRedo.getCheckboxes();
+				roiRemovalHappy = roiRemovalIndex.get(0);
+
+				if(roiRemovalHappy.getState() == true) {				
+					avg=backup;
+				} else {
+					avg=roiFresh;
+					backup.setTitle(name);
+					roiFresh=backup;
 				}
+				
+			}
 
-				//Start the manual thresholding commands and wait for the user to complete it
-				IJ.setAutoThreshold(avg, "Default");
-				new WaitForUserDialog("Manual thresholding", "Manually threshold the image then proceed").show();
+			if(choice == 0) {	
 
-				//If after thresholding the image has an inverted LUT, we flip it
-				if(avg.isInvertedLut() == true) {
-					IJ.run(avg, "Invert LUT", "");
+				backup=babyFresh.duplicate();
+				
+				ArrayList[][] roiDetailsRoundTwo = thresholdingGrandFunction(babyFresh);
+
+				roiDetails[0][0].addAll(roiDetailsRoundTwo[0][0]);
+				roiDetails[0][1].addAll(roiDetailsRoundTwo[0][1]);
+				roiDetails[0][2].addAll(roiDetailsRoundTwo[0][2]);
+
+				NonBlockingGenericDialog freshStart = new NonBlockingGenericDialog("Manual Thresholding");
+				freshStart.addCheckbox("Happy with the big re-do?", false);
+				freshStart.showDialog();
+
+				freshStartValues = freshStart.getCheckboxes();
+				freshStart = manualCheckbox.get(0);
+
+				if(threshHappy.getState() == true) {				
+					threshHappy.setState(true);		
+				} else {
+					avg=babyFresh;
+					backup.setTitle(avgName);
+					babyFresh=backup;
 				}
-
-				//Now we check that the image foreground and background are correctly set
-				new WaitForUserDialog("Check image", "Make sure that vessels are in white on a black background, then proceed").show();
-
-				//Once manual thresholding is complete, we set the while condition to false and exit the loop
-				goodThreshChoice.setState(false);
-
+					
 			}
 
 		}
-		
-		new WaitForUserDialog("Check prints", "Check the thresh, edit if needs be").show();
-		IJ.run(avg, "Skeletonize (2D/3D)", "");
+			
+	IJ.run(avg, "Skeletonize (2D/3D)", "");
 		avg.show();
 		//IJ.run(avgNameSmooth, "Analyze Skeleton (2D/3D)", "prune=[lowest intensity voxel] show display original_image="+dupName+"");
 		IJ.run(avg, "Analyze Skeleton (2D/3D)", "prune=[shortest branch] show display");
