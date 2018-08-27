@@ -7,6 +7,7 @@ import ij.WindowManager; //Import to allow us to manager windows
 import ij.measure; //Import so we can measure things
 import ij.plugin.Duplicator; //Import so we can create substacks using the duplicator
 import ij.process.ImageProcessor; //Import so we can invert the LUT after thresholding
+import ij.plugin.PlugIn; //Import so we can save things without prompting to save changes
 
 //This is basically declaring a function
 //Argsin are the directory to search, the substring to search for, and an arraylist declared outside the function to fill with matching locations
@@ -59,31 +60,33 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 	int count = 1;
 
 	//Set the image we're working with to a variable
-	avg = WindowManager.getImage(imageTitle);
+	image = WindowManager.getImage(imageTitle);
+	IJ.log(imageTitle);
+	image.show();
 		
 	//If the checkbox was true, then enter the loop for removing bits of the image
 	while (removeROIs.getState() == true) {
 			
 		//Show the avg image then ask the user for input
-		avg.show();
+		image.show();
 		new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
 			
 		//Get the roi drawn as well as the number of the slice set - and get the area of the roi
-		int startSlice = avg.getSlice();
+		int startSlice = image.getSlice();
 
 		//Get the slice chosen by the user as the end and calculate difference
 		new WaitForUserDialog("ROI selection", "Set the slice where you want the ROI to end").show();
-		int endSlice = avg.getSlice();
+		int endSlice = image.getSlice();
 
 		//If the endslice is set before the start then we go back to the start of the loop and show an error message
-		if(endSlice<startSlice) {
+		if(endSlice<=startSlice) {
 				
 			new WaitForUserDialog("Slice error", "End slice was set before the start slice").show();
 			
 			} else {
 
 			//Otherwise we get the roi area and slice depth
-			TestROI = avg.getRoi();
+			TestROI = image.getRoi();
 			roiStats = TestROI.getStatistics();
 			twoDArea = roiStats.area;
 
@@ -92,8 +95,8 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 			//Loop through the slices from start to end, each time clearing the area within the ROI
 			IJ.log(Integer.toString(startSlice) + " " + Integer.toString(endSlice));
 			for (int clearSlice = startSlice; clearSlice <= endSlice; clearSlice++) {
-				avg.setSlice(clearSlice);
-				IJ.run(avg, "Clear", "slice");
+				image.setSlice(clearSlice);
+				IJ.run(image, "Clear", "slice");
 				//IJ.log(Integer.toString(clearSlice));
 			}
 
@@ -129,7 +132,7 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 	new WaitForUserDialog("Check prints", "Check the values printed").show();
 
 	//Clear the selection of the last ROI
-	IJ.run(avg, "Select None", "");
+	IJ.run(image, "Select None", "");
 
 	//Return our 2D arraylist
 	return table;
@@ -222,6 +225,8 @@ public static manualThresholding(avg) {
 public static thresholdingGrandFunction(avg) {
 
 	babyFresh=avg.duplicate();
+
+	String avgName = avg.getTitle();
 	
 	//Get the pixel sizes and unit of calibration of the avg image
 	pxlWidth = avg.Calibration.pixelWidth;
@@ -260,9 +265,34 @@ public static thresholdingGrandFunction(avg) {
 		IJ.log("false");
 	}
 
+	new WaitForUserDialog("Check image", "Make sure that vessels are in white on a black background, then proceed").show();
+
 	//If the user says the autothresholding is fine, then run it
 	if(goodThreshChoice.getState() == false) {
-		IJ.run(avg, "Auto Threshold", "method="+threshChoice+" white stack use_stack_histogram");
+		
+		justInCase=avg.duplicate();
+		IJ.run(avg, "Auto Threshold", "method="+threshChoice+" white stack");
+		NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Thresholding satisfactory?");
+		userInputs.addCheckbox("Unhappy with thresholding?", true);
+		userInputs.showDialog();
+
+		threshFirstCheckBox = userInputs.getCheckboxes();
+		threshFirstCheck = threshFirstCheckBox.get(0);
+
+		if(threshFirstCheck.getState() == true) {
+			goodThreshChoice.setState(true);
+			IJ.log("should be entering next loop");		
+			test = String.valueOf(goodThreshChoice);
+			IJ.log(test);
+			avg.changes = false; 
+			avg.close();
+			justInCase.setTitle(avgName);
+			avg=justInCase;
+			avg.show();			
+		} else {
+		justInCase.close();	
+		}
+		
 	}
 
 	//If the autothresholding was bad..
@@ -288,7 +318,7 @@ public static thresholdingGrandFunction(avg) {
 				goodThreshChoice.setState(true);
 			} else {
 				avg.close();
-				backup.setTitle(avgTitle);
+				backup.setTitle(avgName);
 				avg=backup;
 			}
 		}
@@ -307,25 +337,27 @@ public static thresholdingGrandFunction(avg) {
 			manualHappy = manualCheckbox.get(0);
 
 			if(manualHappy.getState() == true) {				
-				threshHappy.setState(true);	
+				goodThreshChoice.setState(true);	
 				} else {
 					avg.close();
-					backup.setTitle(avgTitle);
+					backup.setTitle(avgName);
 					avg=backup;
 				}
 			}
 			
 		if(choice == 1) {
 
-			backup = roiFresh.duplicate();
+			backup = avg.duplicate();
+			String name = backup.getTitle();
+
+			roiRemovalTempBox = new Checkbox();
+			roiRemovalTempBox.setState(true);
+			test = String.valueOf(roiRemovalTempBox);
+			IJ.log(test);
+			IJ.log(name);
+			backup.show();
 				
-			NonBlockingGenericDialog test = new NonBlockingGenericDialog("Test");
-			test.addCheckbox("Test", true);
-			testOut1=test.getCheckboxes();
-			testOut=testOut1.get(0);
-			testOut.setState(true);
-				
-			ArrayList[][] roiDetailsMore = roiRemoval(name, testOut);	
+			ArrayList[][] roiDetailsMore = roiRemoval(name, roiRemovalTempBox);	
 	
 			roiDetails[0][0].addAll(roiDetailsMore[0][0]);
 			roiDetails[0][1].addAll(roiDetailsMore[0][1]);
@@ -342,7 +374,7 @@ public static thresholdingGrandFunction(avg) {
 				backup.close();
 				} else {
 					avg.close();
-					backup.setTitle(avgTitle);
+					backup.setTitle(avgName);
 					avg=backup;
 				}
 				
@@ -351,6 +383,10 @@ public static thresholdingGrandFunction(avg) {
 		if(choice == 0) {	
 
 			backup=babyFresh;
+			backup.show();
+
+			avg.changes = false; 
+			avg.close();
 				
 			thresholdingGrandFunction(backup);
 
@@ -359,13 +395,13 @@ public static thresholdingGrandFunction(avg) {
 			freshStart.showDialog();
 
 			freshStartValues = freshStart.getCheckboxes();
-			freshStart = manualCheckbox.get(0);
+			freshStartBox = freshStartValues.get(0);
 
-			if(threshHappy.getState() == true) {				
+			if(freshStartBox.getState() == true) {				
 				avg.close();
-				backup.setTitle(avgTitle);
+				backup.setTitle(avgName);
 				avg=backup;
-				threshHappy.setState(true);		
+				goodThreshChoice.setState(true);		
 			} else {
 				backup.close();
 			}
@@ -423,6 +459,7 @@ for (File file:output) {
 		//Here we register the open image then grouped z project it according to the user input of how many frames per Z were taken
 		//IJ.run(imp, "MultiStackReg", ""+name+" action_1=Align file_1=[] stack_2=None action_2=Ignore file_2=[] transformation=Translation");
 		IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+FperZ+"");
+		imp.close();
 		
 		//Here we get the averaged image and set it as avg
 		String avgName = "AVG_"+name;
@@ -434,7 +471,7 @@ for (File file:output) {
 
 		ArrayList[][] roiDetails = thresholdingGrandFunction(avg);
 			
-		IJ.run(avg, "Skeletonize (2D/3D)", "");
+		//IJ.run(avg, "Skeletonize (2D/3D)", "");
 		avg.show();
 		//IJ.run(avgNameSmooth, "Analyze Skeleton (2D/3D)", "prune=[lowest intensity voxel] show display original_image="+dupName+"");
 		IJ.run(avg, "Analyze Skeleton (2D/3D)", "prune=[shortest branch] show display");
