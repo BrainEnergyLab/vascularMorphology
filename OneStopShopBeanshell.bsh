@@ -69,6 +69,7 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 			
 		//Show the avg image then ask the user for input
 		image.show();
+		IJ.run(image, "Reverse", "");
 		new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
 			
 		//Get the roi drawn as well as the number of the slice set - and get the area of the roi
@@ -121,6 +122,9 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 			//Increase the value of count by 1
 			count++;
 		}
+
+	IJ.run(image, "Reverse", "");
+		
 	}
 
 	//Display the arrays from ROI clearing
@@ -182,7 +186,7 @@ public static returningValues autoThreshTryAll(String imageTitle) {
 	//Create a non-blocking dialog so the user can still check the image whilst choosing
 	NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Auto Threshold Choice");
 	userInputs.addChoice("Which panel worked the best?", threshChoice, "1");
-	userInputs.addCheckbox("Tick if none of them are any good", false);
+	userInputs.addCheckbox("Tick if you're not happy with any of the options", false);
 			
 	userInputs.showDialog();
 	
@@ -315,8 +319,31 @@ public static thresholdingGrandFunction(avg) {
 			Checkbox goodThreshChoiceLoop = autoThreshFinal.getGoodThresh();
 
 			if(goodThreshChoiceLoop.getState() == false) {
-				goodThreshChoice.setState(true);
+
+				IJ.run(avg, "Auto Threshold", "method="+threshChoiceLoop+" white stack");
+				NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Thresholding satisfactory?");
+				userInputs.addCheckbox("Unhappy with thresholding?", true);
+				userInputs.showDialog();
+		
+				threshFirstCheckBox = userInputs.getCheckboxes();
+				threshFirstCheck = threshFirstCheckBox.get(0);
+
+				if(threshFirstCheck.getState() == false) {
+
+					goodThreshChoice.setState(false);	
+					backup.close();
+
+				} else {
+					
+					avg.changes = false;
+					avg.close();
+					backup.setTitle(avgName);
+					avg = backup;
+					avg.show();
+				}
+				
 			} else {
+				avg.changes = false; 
 				avg.close();
 				backup.setTitle(avgName);
 				avg=backup;
@@ -339,6 +366,7 @@ public static thresholdingGrandFunction(avg) {
 			if(manualHappy.getState() == true) {				
 				goodThreshChoice.setState(true);	
 				} else {
+					avg.changes = false; 
 					avg.close();
 					backup.setTitle(avgName);
 					avg=backup;
@@ -415,8 +443,8 @@ public static thresholdingGrandFunction(avg) {
 }
 
 //Example inputs for the function (called a method in java?)
-String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
-//String dir = "/Users/Devin/Downloads";
+//String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
+String dir = "/Users/Devin/Downloads";
 String toFind = "WideFOV";
 
 //Declare the arrraylist to fill outside the function
