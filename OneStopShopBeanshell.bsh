@@ -8,6 +8,7 @@ import ij.measure; //Import so we can measure things
 import ij.plugin.Duplicator; //Import so we can create substacks using the duplicator
 import ij.process.ImageProcessor; //Import so we can invert the LUT after thresholding
 import ij.plugin.PlugIn; //Import so we can save things without prompting to save changes
+import ij.plugin.frame.RoiManager; //Import so we can work with the roi manager
 
 //This is basically declaring a function
 //Argsin are the directory to search, the substring to search for, and an arraylist declared outside the function to fill with matching locations
@@ -69,7 +70,6 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 			
 		//Show the avg image then ask the user for input
 		image.show();
-		IJ.run(image, "Reverse", "");
 		new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
 			
 		//Get the roi drawn as well as the number of the slice set - and get the area of the roi
@@ -90,6 +90,10 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 			TestROI = image.getRoi();
 			roiStats = TestROI.getStatistics();
 			twoDArea = roiStats.area;
+
+			RoiManager rm = RoiManager.getInstance();
+			rm.addRoi(TestROI);
+			//rm.runCommand("Save", somewheretosavethis);
 
 			sliceArea=endSlice-startSlice+1;
 				
@@ -122,8 +126,6 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 			//Increase the value of count by 1
 			count++;
 		}
-
-	IJ.run(image, "Reverse", "");
 		
 	}
 
@@ -215,7 +217,6 @@ public static returningValues autoThreshTryAll(String imageTitle) {
 public static manualThresholding(avg) {
 
 	//Start the manual thresholding commands and wait for the user to complete it
-	IJ.setAutoThreshold(avg, "Default");
 	new WaitForUserDialog("Manual thresholding", "Manually threshold the image then proceed").show();
 	//If after thresholding the image has an inverted LUT, we flip it
 	if(avg.isInvertedLut() == true) {
@@ -253,6 +254,15 @@ public static thresholdingGrandFunction(avg) {
 
 	//Here we run the roi removal on our averaged, smoothed image, and output a table with the roi details
 	ArrayList[][] roiDetails = roiRemoval(avgName, removeROIs);
+
+	RoiManager rm = RoiManager.getInstance();
+	rm.runCommand("Show All");
+	
+	IJ.log("roiNamesArray contains: " + roiDetails[0][0].toString());  
+	IJ.log("twoDAreaArray contains: " + roiDetails[0][1].toString());  
+	IJ.log("sliceAreaArray contains: " + roiDetails[0][2].toString()); 
+
+	new WaitForUserDialog("Check prints", "Check the values printed").show();
 
 	//Run the autoThreshTryAll function to try out all the auto thresh techniques and see which one works best, return the choice and whether it worked
 	autoThreshOutput = autoThreshTryAll(avgName);
@@ -347,6 +357,7 @@ public static thresholdingGrandFunction(avg) {
 				avg.close();
 				backup.setTitle(avgName);
 				avg=backup;
+				avg.show();
 			}
 		}
 			
@@ -370,22 +381,20 @@ public static thresholdingGrandFunction(avg) {
 					avg.close();
 					backup.setTitle(avgName);
 					avg=backup;
+					avg.show();
 				}
 			}
 			
 		if(choice == 1) {
 
 			backup = avg.duplicate();
-			String name = backup.getTitle();
 
 			roiRemovalTempBox = new Checkbox();
 			roiRemovalTempBox.setState(true);
 			test = String.valueOf(roiRemovalTempBox);
 			IJ.log(test);
-			IJ.log(name);
-			backup.show();
 				
-			ArrayList[][] roiDetailsMore = roiRemoval(name, roiRemovalTempBox);	
+			ArrayList[][] roiDetailsMore = roiRemoval(avgName, roiRemovalTempBox);	
 	
 			roiDetails[0][0].addAll(roiDetailsMore[0][0]);
 			roiDetails[0][1].addAll(roiDetailsMore[0][1]);
@@ -401,22 +410,28 @@ public static thresholdingGrandFunction(avg) {
 			if(roiRemovalHappy.getState() == true) {				
 				backup.close();
 				} else {
+					avg.changes = false;
 					avg.close();
 					backup.setTitle(avgName);
 					avg=backup;
+					avg.show();
 				}
 				
 			}
 
 		if(choice == 0) {	
 
+			//Problem occurs with this choice when you choose it twice - need to find way to exit all the way out of it
+
 			backup=babyFresh;
-			backup.show();
 
 			avg.changes = false; 
 			avg.close();
+			backup.setTitle(avgName);
+			avg=backup;
+			avg.show();
 				
-			thresholdingGrandFunction(backup);
+			ArrayList[][] roiDetailsInLoop = thresholdingGrandFunction(avg);
 
 			NonBlockingGenericDialog freshStart = new NonBlockingGenericDialog("Fresh go");
 			freshStart.addCheckbox("Happy with the big re-do?", false);
@@ -426,10 +441,18 @@ public static thresholdingGrandFunction(avg) {
 			freshStartBox = freshStartValues.get(0);
 
 			if(freshStartBox.getState() == true) {				
+				avg.changes=false;
 				avg.close();
 				backup.setTitle(avgName);
 				avg=backup;
-				goodThreshChoice.setState(true);		
+				avg.show();
+
+				roiDetails[0][0].addAll(roiDetailsInLoop[0][0]);
+				roiDetails[0][1].addAll(roiDetailsInLoop[0][1]);
+				roiDetails[0][2].addAll(roiDetailsInLoop[0][2]);
+				
+				goodThreshChoice.setState(false);
+				
 			} else {
 				backup.close();
 			}
@@ -485,9 +508,9 @@ for (File file:output) {
 		//System.exit();	
 		
 		//Here we register the open image then grouped z project it according to the user input of how many frames per Z were taken
-		//IJ.run(imp, "MultiStackReg", ""+name+" action_1=Align file_1=[] stack_2=None action_2=Ignore file_2=[] transformation=Translation");
+		IJ.run(imp, "MultiStackReg", ""+name+" action_1=Align file_1=[] stack_2=None action_2=Ignore file_2=[] transformation=Translation");
 		IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+FperZ+"");
-		imp.close();
+		imp.close();
 		
 		//Here we get the averaged image and set it as avg
 		String avgName = "AVG_"+name;
@@ -498,9 +521,12 @@ for (File file:output) {
 		IJ.run(avg, "Median 3D...", "x=2 y=2 z=2");
 
 		ArrayList[][] roiDetails = thresholdingGrandFunction(avg);
-			
-		//IJ.run(avg, "Skeletonize (2D/3D)", "");
+
+		avg = WindowManager.getImage(avgName);
+	
+		IJ.run(avg, "Skeletonize (2D/3D)", "");
 		avg.show();
+		System.exit();	
 		//IJ.run(avgNameSmooth, "Analyze Skeleton (2D/3D)", "prune=[lowest intensity voxel] show display original_image="+dupName+"");
 		IJ.run(avg, "Analyze Skeleton (2D/3D)", "prune=[shortest branch] show display");
 		
