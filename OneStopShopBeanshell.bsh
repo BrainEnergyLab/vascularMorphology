@@ -34,8 +34,7 @@ public static listFilesAndFilesSubDirectories(String directoryName, String subst
 				String stringForm = file.getAbsolutePath();
 				File fileForm = new File(stringForm);
 				fileLocations.add(fileForm);
-				//imp=IJ.openImage(file.getAbsolutePath);
-				//imp.show();
+			
 			}
 		//If the file we're checking is a directory, then we run the whole thing on that directory
 		} else if (file.isDirectory()) {
@@ -45,17 +44,12 @@ public static listFilesAndFilesSubDirectories(String directoryName, String subst
 
 	//Here we convert out ArrayList to a string array and return it
 	File[] arrayForm = fileLocations.toArray(new File[0]);
-	//String [] test = new String[fileLocations.size()];
-	//test=fileLocations.toArray(test);
-	//System.out.println(fileLocations.size());
-	//System.out.println(test.length);
-	//String [] test = fileLocations.toArray(new String[fileLocations.size()]);
 	return arrayForm;
 }
 
 //This asks the user if they wish to remove ROIs from the image, and outputs the area of ROI removed and over what range of slices
 //Argsin are just the title of the image to be ROI edited
-public static roiRemoval(String imageTitle, Checkbox removeROIs) {
+public static roiRemoval(String imageTitle, Checkbox removeROIs, int timesRun) {
 
 	//Not necessary anymore
 
@@ -97,25 +91,18 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 		calibratedUnit = image.getCalibration().getXUnit();
 		}
 
-	//Once calibrated, get out the pixel width of the image
-	calibratedPixel = image.getCalibration().pixelWidth;
-
-	//Now we calibrate the mask storage image with the same values as the input image and depth to 1 (hardcoded to slice differences of 1um, need to address this
-	Calibration cal = maskImage.getCalibration();
-	cal.setUnit(calibratedUnit);
-	cal.pixelWidth = calibratedPixel;
-	cal.pixelHeight = calibratedPixel;
-	cal.pixelDepth = 1;
-
 	//Open the ROI manager and create a variable to refer to the open instance
 	IJ.run("ROI Manager...", "");
 	RoiManager rm = RoiManager.getInstance();
+
+	oldRemoveROIsValue=removeROIs;
 		
 	//If the checkbox was true (to create ROIs), then enter the loop for removing bits of the image
 	while (removeROIs.getState() == true) {
 			
 		//Show the avg image then ask the user for input
 		image.show();
+		maskImage.hide();	
 		new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
 			
 		//Get the number of the slice set
@@ -139,13 +126,7 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 			slicesToRemove.add(startSlice);
 			slicesToRemove.add(endSlice);
 
-			//Not necessary anymore
-
-/////////////////////////////////			
-
-			//sliceArea=endSlice-startSlice+1;
-
-/////////////////////////////////
+			maskImage.show();
 				
 			//Loop through the slices from start to end, each time clearing the area within the ROI in our input and mask images image
 			for (int clearSlice = startSlice; clearSlice <= endSlice; clearSlice++) {
@@ -158,6 +139,8 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 				maskImage.setSlice(clearSlice);
 				IJ.run(maskImage, "Fill", "slice");		
 			}
+
+			maskImage.hide();
 
 			//Not necessary anymore
 
@@ -180,134 +163,39 @@ public static roiRemoval(String imageTitle, Checkbox removeROIs) {
 			//Get the checkbox (which returns a vector so we have to get an index of it)
 			roiChoice = userInputs.getCheckboxes();
 			removeROIs = roiChoice.get(0);
-			//test = String.valueOf(removeROIs);
-			//IJ.log(test);
 
-			//Increase the value of count by 1
+			//Increase the value of count by 1 i.e. how many ROIs we've removed
 			count++;
 
 		}
 		
 	}
 
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-	//If falsed this section as it was previously used to clear the same areas in the roimask as were being cleared in the original image - some useful code
-	//and commands here
-	if(false) {
-
-		//Once the user has drawn all the Rois desired, clear all selections from our mask image and show it
-		IJ.run(image, "Select None", "");
-		maskImage.show();
-
-		//We then loop through the number of rois the user drew
-		for (roiCount=0; roiCount < rm.getCount(); roiCount++) {
-			//slicesIndex is used to determine where in our slicestoRemove arraylist the beginning and end slices for each roi are stored, which we retrieve
-			slicesIndex=((roiCount+1)*2)-2;
-			sliceToStart=slicesToRemove.get(slicesIndex);
-			sliceToEnd=slicesToRemove.get((slicesIndex+1));
-			IJ.log("Roi number is " + Integer.toString(roiCount+1));
-			IJ.log("Slices to fill are " + Integer.toString(sliceToStart) + " to " + Integer.toString(sliceToEnd));
-			//We then loop through these slices
-			for(currentSlice = sliceToStart; currentSlice < (sliceToEnd+1); currentSlice++) {
-				IJ.log("Current slice is " + Integer.toString(currentSlice));
-				IJ.run("ROI Manager...", "");
-				RoiManager rm = RoiManager.getInstance();
-				IJ.run(maskImage, "Select None", "");
-				rm.select(roiCount);
-				maskImage.setSlice(currentSlice);
-				IJ.run(maskImage, "Fill", "slice");	
-			}	
-		}
-
-	}
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-	//Make sure there are no selections on the mask image
-	IJ.run(maskImage, "Select None", "");
-	//Invert it so that the cleared areas have a value of 255 and the background of 0
-	IJ.run(maskImage, "Invert", "stack");
-	//Run the voxel counter
-	IJ.run(maskImage, "Voxel Counter", "");
-	//Get out the number of voxels counted as a double array, voxelCount
-	ResultsTable rt = ResultsTable.getResultsTable();
-	voxelCount = rt.getColumnAsDoubles(0);
-
-	//Loop through all the values in voxelCount and tally up how many total voxels have been cleared
-	total = 0;
-	for(voxelTotalVar=0; voxelTotalVar<imageDimensions[3]; voxelTotalVar++) {
-		total = total + voxelCount[voxelTotalVar];
-	}
-
-	IJ.log("Total voxels: " + IJ.d2s(total, 3));
-
-	//Calculate the volume occupied by a single voxel using calibrated values of width and depth
-	voxelWidth = image.getCalibration().pixelWidth;
-	voxelDepth = image.getCalibration().pixelDepth;
-	voxelVolume=(voxelWidth*voxelWidth*voxelDepth);
-
-	//Calculate the total volume of the image cleared by the rois
-	volumeOccupied=voxelVolume*total;
+//Not necessary anymore
 	
-	IJ.log("Pixel width: " + IJ.d2s(voxelWidth, 9) + " Pixel depth: " + IJ.d2s(voxelDepth,9) + " Volume: " + IJ.d2s(voxelVolume,9));
-	IJ.log(IJ.d2s(volumeOccupied, 9));
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////
-	
-	//If falsed here as this was previously an attempt to calculate the area occupied by the slices - again, some useful code and commands here
-	//Idea was to get the area of all cleared rois from our mask stack, but only need to do this at slices where rois were cleared - hence the checking if the mean
-	//grey value for a slice was above 0, finally the idea was to go through the areas for each slice and find where they changed, as this would indicate a new roi added
-	//or removed, and this could need to be accounted for in calculating the volume removed - voxel counter is much easier!
-	if(false) {
-	
-		ArrayList areaStorage = new ArrayList();
-
-		for (maskSlice = 1; maskSlice<(imageDimensions[3]+1); maskSlice++) {
-			maskImage.setSlice(maskSlice);
-			stats = maskImage.getStatistics();
-			mean = stats.mean;
-			if(mean>0) {
-				IJ.run(maskImage, "Create Selection", "");
-				IJ.run(maskImage, "Make Inverse", "");
-				currentMaskRoi = maskImage.getRoi();
-				roiStats = currentMaskRoi.getStatistics();
-				roiArea = roiStats.area;
-				areaStorage.add(roiArea);
-				IJ.log("Slice: " + maskSlice + " Area: " + IJ.d2s(roiArea, 3));
-				IJ.run(maskImage, "Select None", "");
-				arrayListSize=areaStorage.size();
-				if(arrayListSize>1) {
-					if(roiArea!=areaStorage.get(arrayListSize-1)) {	
-					}
-				}
-			
-			}
-		}
-	}
-
-	//Not necessary anymore
-
 /////////////////////////////////
-	
+		
 	//Display the arrays from ROI clearing
 	//IJ.log("roiNamesArray contains: " + table[0][0].toString());  
 	//IJ.log("twoDAreaArray contains: " + table[0][1].toString());  
 	//IJ.log("sliceAreaArray contains: " + table[0][2].toString());  
-
+	
 /////////////////////////////////
 
+	//Make sure there are no selections on the mask image
+	IJ.run(maskImage, "Select None", "");
+	
 	//Clear the selection of the last ROI
 	IJ.run(image, "Select None", "");
 
-	//Return the calibrated volume cleared - in um3
-	return volumeOccupied;
+	//Here we rename our mask image to how many times we've run the removeROI function, as at the end of all roi removals we need to be able to refer to the masks from each run
+	timesRunString = Integer.toString(timesRun);
+	maskImage.setTitle("Mask " + timesRunString);
+	maskImage.show();	
+	
+	//Clear the roi manager
+	rm.runCommand("Deselect");
+	rm.runCommand("Delete");
 	
 }
 
@@ -395,6 +283,7 @@ public static manualThresholding(avg) {
 //Function for the entire thresholding and roi removal process of an image, avg
 public static thresholdingGrandFunction(avg) {
 
+	//Create a backup of the input image
 	babyFresh=avg.duplicate();
 
 	String avgName = avg.getTitle();
@@ -403,10 +292,6 @@ public static thresholdingGrandFunction(avg) {
 	pxlWidth = avg.Calibration.pixelWidth;
 	pxlDepth = avg.Calibration.pixelDepth;
 	unit = avg.Calibration.getUnit();
-	
-	//Get the area of the whole image in pixels, and it's slice number
-	wholeArea=avg.getStatistics().area;
-	totalSlices=avg.getNSlices();
 
 	//Create a dialog to ask the user whether they want to manually remove ROIs
 	NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Cleaning image");
@@ -416,36 +301,37 @@ public static thresholdingGrandFunction(avg) {
 	//Get the checkbox (which returns a vector so we have to get an index of it)
 	roiChoice = userInputs.getCheckboxes();
 	removeROIs = roiChoice.get(0);
-	//test = String.valueOf(removeROIs);
 
-	//Here we run the roi removal on our averaged, smoothed image, and output a value of the volume removed
-	volumeRemoved = roiRemoval(avgName, removeROIs);
+	//We count how many times we've run the roiRemoval function so that we know how many outputs we have to deal with at the end of this function
+	timesRun=0;
 
-	RoiManager rm = RoiManager.getInstance();
-	rm.runCommand("Show All");
+	//Create an array to store the maskImages output by the roiRemoval function
+	ArrayList maskImages = new ArrayList();
+
+	//If the user has chosen to remove rois then enter condition
+	if(removeROIs.getState()==true) {
+		//Here we run the roi removal on our averaged, smoothed image, and increase the number of times roiRemoval has been run by 1
+		roiRemoval(avgName, removeROIs, timesRun);
+
+		//We get the variable of the mask image created, hide it, and store it in our arraylist
+		tempSelect = WindowManager.getImage("Mask " + Integer.toString(timesRun));
+		tempSelect.hide();
+		maskImages.add(tempSelect);
+
+		timesRun++;
+	}
+
+	//Not necessary anymore
 	
 	//IJ.log("roiNamesArray contains: " + roiDetails[0][0].toString());  
 	//IJ.log("twoDAreaArray contains: " + roiDetails[0][1].toString());  
 	//IJ.log("sliceAreaArray contains: " + roiDetails[0][2].toString()); 
-
-	new WaitForUserDialog("Check prints", "Check the values printed").show();
 
 	//Run the autoThreshTryAll function to try out all the auto thresh techniques and see which one works best, return the choice and whether it worked
 	autoThreshOutput = autoThreshTryAll(avgName);
 
 	String threshChoice = autoThreshOutput.getThreshChoice();
 	Checkbox goodThreshChoice = autoThreshOutput.getGoodThresh(); 
-
-	//Print these values, to check
-	IJ.log(threshChoice);
-
-	if(goodThreshChoice.getState() == true) {
-		IJ.log("true");
-	} else {
-		IJ.log("false");
-	}
-
-	new WaitForUserDialog("Check image", "Make sure that vessels are in white on a black background, then proceed").show();
 
 	//If the user says the autothresholding is fine, then run it
 	if(goodThreshChoice.getState() == false) {
@@ -585,9 +471,14 @@ public static thresholdingGrandFunction(avg) {
 			roiRemovalTempBox.setState(true);
 			test = String.valueOf(roiRemovalTempBox);
 			IJ.log(test);
-
+			
 			//Run the roi removal function
-			moreVolumeRemoved = roiRemoval(avgName, roiRemovalTempBox);	
+			roiRemoval(avgName, roiRemovalTempBox, timesRun);	
+
+			//Create a variable for the mask that was output by the function
+			IJ.log("Mask " + Integer.toString((timesRun)));
+			tempSelect = WindowManager.getImage("Mask " + Integer.toString((timesRun)));
+			tempSelect.hide();
 	
 			//roiDetails[0][0].addAll(roiDetailsMore[0][0]);
 			//roiDetails[0][1].addAll(roiDetailsMore[0][1]);
@@ -601,12 +492,14 @@ public static thresholdingGrandFunction(avg) {
 			roiRemovalIndex = roiRemovalRedo.getCheckboxes();
 			roiRemovalHappy = roiRemovalIndex.get(0);
 
-			//If they're happy, we close the backup and sum all the volumes removed so far and revert to the menu
+			//If they're happy, we close the backup and add the mask to our arrayList of masks and increase timesRun
 			if(roiRemovalHappy.getState() == true) {				
 				backup.close();
-				volumeRemoved=volumeRemoved+moreVolumeRemoved;
-			//Otherwise we close the input and set the backup to the main image
+				maskImages.add(tempSelect);
+				timesRun++;
+			//Otherwise we close the input and the mask and set the backup to the main image
 			} else {
+				tempSelect.close();
 				avg.changes = false;
 				avg.close();
 				backup.setTitle(avgName);
@@ -619,57 +512,154 @@ public static thresholdingGrandFunction(avg) {
 		//If the user wants to start from scratch with the image
 		if(choice == 0) {	
 
-			//Problem occurs with this choice when you choose it twice - need to find way to exit all the way out of it
-
-			//Set the backup variable to refer to babyFresh - the backup image created before any image processing was done
-			backup=babyFresh;
-
-			//Close the input image and set the backup as the main image
+			//Close the input image and set the backup as the main image so we go back to the menu with a fresh clean image
 			avg.changes = false; 
 			avg.close();
-			backup.setTitle(avgName);
-			avg=backup;
+			babyFresh.setTitle(avgName);
+			avg=babyFresh;
 			avg.show();
 
-			//Run this entire function again on the cleaned image
-			totalVolumeRemovedByRois = thresholdingGrandFunction(avg);
+			babyFresh=avg.duplicate();
 
-			//Check if the user is happy with the outcome
-			NonBlockingGenericDialog freshStart = new NonBlockingGenericDialog("Fresh go");
-			freshStart.addCheckbox("Happy with the big re-do?", false);
-			freshStart.showDialog();
-
-			freshStartValues = freshStart.getCheckboxes();
-			freshStartBox = freshStartValues.get(0);
-
-			//If they were then we do some stuff ... not clear if this is the right process here
-			if(freshStartBox.getState() == true) {				
-				avg.changes=false;
-				avg.close();
-				backup.setTitle(avgName);
-				avg=backup;
-				avg.show();
-
-				//Add the rois removed in this run to the one in the incepted run
-				volumeRemoved = volumeRemoved + totalVolumeRemovedByRois;
-
-				//roiDetails[0][0].addAll(roiDetailsInLoop[0][0]);
-				//roiDetails[0][1].addAll(roiDetailsInLoop[0][1]);
-				//roiDetails[0][2].addAll(roiDetailsInLoop[0][2]);
-
-				//Set condition to false so we exit the loop
-				goodThreshChoice.setState(false);
-
-			//If the user wasn't happy with the big redo - need to work on this again as well
-			} else {
-				//We close the backup and go back to the image before it was edited in the big redo
-				backup.close();
-			}
-					
 		}
 
 	}
+	
+//Now we check if the user has run the roiRemoval function, and if they have then we have to calculate the volume they've removed
+	if(timesRun>0) {
 
+		//A string to store the list of masks to use when adding them together
+		StringBuilder imagesToUse  = new StringBuilder();
+		
+		//String to store the expression for the image expression parser plugin (i.e. adding the images together or subtracting etc., this plugin can do image calculation but for >2 images)
+		StringBuilder expressionToUse = new StringBuilder();
+	
+		//String to store the correct command i.e. a=[image1] b=[image2] for use with the plugin
+		String[] amendedAlphabetArray = new String[26];
+	
+		//Character array to store all the upercase alphabet characters
+		char[] uppercaseAlpha = new char[26];
+		//And one to store the lowercase letters
+		char[] lowercaseAlpha = new char[26];
+	
+		//Populate the uppercaseAlpha array with uppercase letters
+		for(i = 0; i < 26; i++){
+		    uppercaseAlpha[i] = (char)(65 + i);
+		}
+	
+		//Same for lowercase - except fill the amendedAlphabetArray with the lowercase + =[
+		for(i = 0; i < 26; i++){
+			lowercaseAlpha[i] = (char)(97 + i);
+			amendedAlphabetArray[i] = lowercaseAlpha[i]+"=[";
+		}
+	
+		//Loop through the number of times we've run roiRemoval
+		for(roisRun = 0; roisRun <timesRun; roisRun++){
+			IJ.log("Looking for: Mask " + Integer.toString(roisRun));
+			tempSelect = maskImages.get(roisRun);
+			tempSelect.show();
+			currentImageName = tempSelect.getTitle();
+			
+			//Get the current amended letter associated with the current roisRun value
+			currentLetter = amendedAlphabetArray[roisRun];
+			
+			//Add a ] to the end of it
+			stringToAdd=currentImageName+"] ";
+			wholeBit=currentLetter+stringToAdd;
+	
+			//Add this to the imagesToUse StringBuilder and build up a string of all these
+			imagesToUse.append(wholeBit);
+	
+			//If we aren't at the final roisRun value, put in the uppercase current letter with a +
+			if(roisRun!=(timesRun-1)){
+				expressionToUse.append(uppercaseAlpha[roisRun]+"+");
+			//Else just add the letter without the +	
+			} else {
+				expressionToUse.append(uppercaseAlpha[roisRun]);
+			}
+		}
+	
+		//Turn the StringBuilder values into strings
+		String imagesList = imagesToUse.toString();
+		String expression = expressionToUse.toString();
+	
+		//Print the strings to see them
+		IJ.log(imagesList);
+		IJ.log(expression);
+	
+		//Run the image expression parser using the built strings
+		IJ.run("Image Expression Parser (Macro)", "expression="+expression+" "+imagesList+"");
+
+		//We get the output of the parser
+		parsedImageVirt = IJ.getImage();
+		//Then we duplicate it (so that the duplicate is no longer a virtual stack)
+		parsedImage=parsedImageVirt.duplicate();
+		//Then we close the original
+		parsedImageVirt.close();
+		//And show the duplicate
+		parsedImage.show();
+		//Then we get the name of the image
+		currentImageName = parsedImage.getTitle();
+
+		//We then loop through the number of times we've run the roiRemoval and close all the associated mask windows
+		for(roisRun = 0; roisRun <timesRun; roisRun++){
+			tempSelect = maskImages.get(roisRun);
+			tempSelect.close();
+		}
+
+		//We then invert and 8-bit the parsed image output (the sum of all mask windows
+		IJ.run(parsedImage, "Invert", "stack");
+		IJ.run(parsedImage, "8-bit", "");
+
+		//Get the pixel sizes and unit of calibration and number of slices of the avg image
+		pxlWidth = avg.Calibration.pixelWidth;
+		pxlDepth = avg.Calibration.pixelDepth;
+		unit = avg.Calibration.getUnit();
+		totalSlices=avg.getNSlices();
+
+		//Calibrate the parsed image
+		IJ.run(parsedImage, "Properties...", "channels=1 slices="+totalSlices+" frames=1 unit="+unit+" pixel_width="+pxlWidth+" pixel_height="+pxlWidth+" voxel_depth="+pxlDepth+"");
+			
+		//Run the voxel counter
+		IJ.run(parsedImage, "Voxel Counter", "");
+		//Get out the number of voxels counted as a double array, voxelCount
+		ResultsTable rt = ResultsTable.getResultsTable();
+		voxelCount = rt.getColumnAsDoubles(0);
+		
+		//Loop through all the values in voxelCount and tally up how many total voxels have been cleared
+		total = 0;
+		for(voxelTotalVar=0; voxelTotalVar<totalSlices; voxelTotalVar++) {
+			total = total + voxelCount[voxelTotalVar];
+		}
+		
+		IJ.log("Total voxels: " + IJ.d2s(total, 3));
+		
+		//Calculate the volume occupied by a single voxel using calibrated values of width and depth
+		voxelVolume=(pxlWidth*pxlWidth*pxlDepth);
+		
+		//Calculate the total volume of the image cleared by the rois
+		volumeRemoved=voxelVolume*total;
+	
+		IJ.log("Calculated space removed by ROIs");	
+		IJ.log("Pixel width: " + IJ.d2s(pxlWidth, 9) + " Pixel depth: " + IJ.d2s(pxlDepth,9) + " Voxel Volume: " + IJ.d2s(voxelVolume,9));
+		IJ.log("Volume removed: " + IJ.d2s(volumeRemoved, 9) + "um^3");
+
+		//Don't save changes to the parsed image, and close it
+		parsedImage.changes = false;
+		parsedImage.close();
+
+	//If no roi removals were done
+	} else {
+
+		//Set the volume removed to nothing
+		double volumeRemoved=0;	
+	
+		IJ.log("No space removed by ROIs");
+		IJ.log("Volume removed: " + IJ.d2s(volumeRemoved,9) + "um^3");
+	
+	}
+
+	//Return how much volume of the image we removed by roi clearing
 	return volumeRemoved;
 	
 }
@@ -729,9 +719,22 @@ for (File file:output) {
 		IJ.run(avg, "8-bit", "");
 		//IJ.run(avg, "Median 3D...", "x=2 y=2 z=2");
 
+		calibratedUnit = avg.getCalibration().getXUnit();
+
+		//If the image isn't calibrated in um, prompt the user to calibrate it in um until it is
+		while(calibratedUnit!="µm") {	
+			new WaitForUserDialog("Calibration", "Calibrate the image into um in the next window").show();
+			IJ.run(avg, "Properties...", "");
+			calibratedUnit = avg.getCalibration().getXUnit();
+			}
+
 		roiVolumeRemoved = thresholdingGrandFunction(avg);
 
 		avg = WindowManager.getImage(avgName);
+
+		IJ.log("ROI Volume Removed: " + IJ.d2s(roiVolumeRemoved, 9));
+
+		System.exit();	
 	
 		IJ.run(avg, "Skeletonize (2D/3D)", "");
 		avg.show();
