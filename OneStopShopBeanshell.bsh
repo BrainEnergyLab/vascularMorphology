@@ -280,6 +280,26 @@ public static manualThresholding(avg) {
 	new WaitForUserDialog("Check image", "Make sure that vessels are in white on a black background, then proceed").show();
 }
 
+public static replaceWithBackup(avg, backup) {
+	String avgName = avg.getTitle();
+	avg.changes = false;
+	avg.close();
+	backup.setTitle(avgName);
+	avg = backup;
+	avg.show();
+}
+
+public static dialogUserApproval(String dialogTitle, String dialogText) {
+	NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog(dialogTitle);
+	userInputs.addCheckbox(dialogText, true);
+	userInputs.showDialog();
+		
+	FirstCheckBox = userInputs.getCheckboxes();
+	FirstCheck = FirstCheckBox.get(0);
+
+	return FirstCheck;
+}
+
 //Function for the entire thresholding and roi removal process of an image, avg
 public static thresholdingGrandFunction(avg) {
 
@@ -293,14 +313,15 @@ public static thresholdingGrandFunction(avg) {
 	pxlDepth = avg.Calibration.pixelDepth;
 	unit = avg.Calibration.getUnit();
 
-	//Create a dialog to ask the user whether they want to manually remove ROIs
-	NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Cleaning image");
-	userInputs.addCheckbox("Do you want to manually remove ROIs from the image?", false);
-	userInputs.showDialog();
+	//Not necessary anymore
 	
-	//Get the checkbox (which returns a vector so we have to get an index of it)
-	roiChoice = userInputs.getCheckboxes();
-	removeROIs = roiChoice.get(0);
+	//IJ.log("roiNamesArray contains: " + roiDetails[0][0].toString());  
+	//IJ.log("twoDAreaArray contains: " + roiDetails[0][1].toString());  
+	//IJ.log("sliceAreaArray contains: " + roiDetails[0][2].toString()); 
+
+	//Next stages here - add options for smoothing of images, and maybe don't bother with roi removal prior to first autothresh trial - maybe don't have any of that, just hvae the menu section?
+
+	//If the autothresholding was bad..
 
 	//We count how many times we've run the roiRemoval function so that we know how many outputs we have to deal with at the end of this function
 	timesRun=0;
@@ -308,82 +329,54 @@ public static thresholdingGrandFunction(avg) {
 	//Create an array to store the maskImages output by the roiRemoval function
 	ArrayList maskImages = new ArrayList();
 
-	//If the user has chosen to remove rois then enter condition
-	if(removeROIs.getState()==true) {
-		//Here we run the roi removal on our averaged, smoothed image, and increase the number of times roiRemoval has been run by 1
-		roiRemoval(avgName, removeROIs, timesRun);
-
-		//We get the variable of the mask image created, hide it, and store it in our arraylist
-		tempSelect = WindowManager.getImage("Mask " + Integer.toString(timesRun));
-		tempSelect.hide();
-		maskImages.add(tempSelect);
-
-		timesRun++;
-	}
-
-	//Not necessary anymore
+	editImage=true;
 	
-	//IJ.log("roiNamesArray contains: " + roiDetails[0][0].toString());  
-	//IJ.log("twoDAreaArray contains: " + roiDetails[0][1].toString());  
-	//IJ.log("sliceAreaArray contains: " + roiDetails[0][2].toString()); 
-
-	//Run the autoThreshTryAll function to try out all the auto thresh techniques and see which one works best, return the choice and whether it worked
-	autoThreshOutput = autoThreshTryAll(avgName);
-
-	String threshChoice = autoThreshOutput.getThreshChoice();
-	Checkbox goodThreshChoice = autoThreshOutput.getGoodThresh(); 
-
-	//If the user says the autothresholding is fine, then run it
-	if(goodThreshChoice.getState() == false) {
-
-		//Duplicate the input image so we can go back to it if the user isn't happy with thresholding
-		justInCase=avg.duplicate();
-		IJ.run(avg, "Auto Threshold", "method="+threshChoice+" white stack");
-		
-		//Ask the user to check if they are happy with the result
-		NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Thresholding satisfactory?");
-		userInputs.addCheckbox("Unhappy with thresholding?", true);
-		userInputs.showDialog();
-
-		threshFirstCheckBox = userInputs.getCheckboxes();
-		threshFirstCheck = threshFirstCheckBox.get(0);
-
-		//If unhappy, then we set goodThreshChoice to true so we can enter the next loop where we can make more changes to the original image
-		if(threshFirstCheck.getState() == true) {
-			goodThreshChoice.setState(true);
-			IJ.log("should be entering next loop");		
-			test = String.valueOf(goodThreshChoice);
-			IJ.log(test);
-
-			//Set saving changes to false and close the original image (avg), but set the backup image title to the original image title
-			//and set the avg variable to refer to the backup now
-			avg.changes = false; 
-			avg.close();
-			justInCase.setTitle(avgName);
-			avg=justInCase;
-			avg.show();			
-		} else {
-			//If the user is happy with thresholding, we close the backup	
-			justInCase.close();	
-		}
-		
-	}
-
-	//Next stages here - add options for smoothing of images, and maybe don't bother with roi removal prior to first autothresh trial - maybe don't have any of that, just hvae the menu section?
-
-	//If the autothresholding was bad..
-	while(goodThreshChoice.getState() == true) {
+	while(editImage == true) {
 
 		//Ask the user to choose between these choices
-		String [] choiceArray = {"Start from the beginning - remove all ROI clearances and thresholding","Remove more ROIs", "Manually threshold the ROI cleared image", "Try a different automated thresholding technique"};
+		String [] choiceArray = {"Start from the beginning - remove all image edits","Remove ROIs", "Manually threshold the image", "Try an automated thresholding technique", "Smooth the image", };
 			
-		NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Thresholding satisfactory");
+		NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Image Processing");
 		userInputs.addChoice("Watchu wanna do 'bout it?", choiceArray, "Start from the beginning - remove all ROI clearances and thresholding");
 		userInputs.showDialog();
 
 		int choice = userInputs.getNextChoiceIndex();
 
 		//If the user chooses to try a different automated thresholding technique
+
+
+		if(choice == 4) {
+			
+			backup = avg.duplicate();
+			
+			String [] smoothingArray = {"Gaussian Blur 3D", "Median 3D", "Mean 3D", "Minimum 3D", "Maximum 3D", "Variance 3D"};
+			
+			NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Image Smoothing");
+			userInputs.addChoice("Which smoothing technique?", smoothingArray, "Gaussian Blur 3D");
+			userInputs.addNumericField("Pixels to smooth in x: ", 0,0);
+			userInputs.addNumericField("Pixels to smooth in y: ", 0,0);
+			userInputs.addNumericField("Pixels to smooth in z: ", 0,0);
+			
+			userInputs.showDialog();
+
+			int xSmooth = userInputs.getNextNumber();
+			int ySmooth = userInputs.getNextNumber();
+			int zSmooth = userInputs.getNextNumber();
+
+			int smoothingMethod = userInputs.getNextChoiceIndex();
+
+			IJ.run(avg, ""+smoothingArray[smoothingMethod]+"...", "x="+xSmooth+" y="+ySmooth+" z="+zSmooth+"");
+
+			smoothFirstCheck = dialogUserApproval("Smoothing satisfactory?", "Happy with the smoothing?");
+
+			if(smoothFirstCheck.getState() == true) {
+				backup.close();
+			} else {
+				replaceWithBackup(avg, backup);
+			}
+
+		}
+		
 		if(choice == 3) {
 
 			//Backup the input image and run the autoThreshTryAll function on the input
@@ -398,37 +391,28 @@ public static thresholdingGrandFunction(avg) {
 				IJ.run(avg, "Auto Threshold", "method="+threshChoiceLoop+" white stack");
 
 				//Check if the user is still happy
-				NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Thresholding satisfactory?");
-				userInputs.addCheckbox("Unhappy with thresholding?", true);
-				userInputs.showDialog();
-		
-				threshFirstCheckBox = userInputs.getCheckboxes();
-				threshFirstCheck = threshFirstCheckBox.get(0);
+				threshFirstCheck = dialogUserApproval("Thresholding satisfactory?", "Happy with thresholding?");
 
 				//If so, then close the backup image and we exit this whole condition by setting goodThreshChoice to false
-				if(threshFirstCheck.getState() == false) {
+				if(threshFirstCheck.getState() == true) {
 
-					goodThreshChoice.setState(false);	
-					backup.close();
+					IJ.log("Checking what the skeleton looks like");
+					IJ.run(avg, "Skeletonize (2D/3D)", "");
 
-				//Otherwise we close the input image and replace it with the backup image and revert to the menu
-				} else {
+					//Check if the user is still happy
+					skeletonFirstCheck = dialogUserApproval("Skeleton satisfactory?", "Happy with the skeleton?");
+
+					if(skeletonFirstCheck.getState() == true) {
+
+						editImage = false;
+						backup.close();
 					
-					avg.changes = false;
-					avg.close();
-					backup.setTitle(avgName);
-					avg = backup;
-					avg.show();
+					}
 				}
+			}
 
-			//Here if the user wasn't happy with the options straight off the bat from the function we close the input and set the backup as the main
-			//and revert back to the menu of choices
-			} else {
-				avg.changes = false; 
-				avg.close();
-				backup.setTitle(avgName);
-				avg=backup;
-				avg.show();
+			if(goodThreshChoiceLoop.getState() == true || threshFirstCheck.getState() == false || skeletonFirstCheck.getState() == false) {
+				replaceWithBackup(avg, backup);
 			}
 		}
 
@@ -442,23 +426,27 @@ public static thresholdingGrandFunction(avg) {
 			manualThresholding(avg);
 
 			//Check if the user is happy
-			NonBlockingGenericDialog manualThresholdingBox = new NonBlockingGenericDialog("Manual Thresholding");
-			manualThresholdingBox.addCheckbox("Happy with the manual threshold?", false);
-			manualThresholdingBox.showDialog();
-
-			manualCheckbox = manualThresholdingBox.getCheckboxes();
-			manualHappy = manualCheckbox.get(0);
+			manualHappy = dialogUserApproval("Manual Thresholding", "Happy with the manual threshold?");
 
 			//If happy, set goodThreshChoice to true and exit condition
-			if(manualHappy.getState() == true) {				
-				goodThreshChoice.setState(true);	
-				//else we close the input and set the backup as main and revert to the menu
-			} else {
-				avg.changes = false; 
-				avg.close();
-				backup.setTitle(avgName);
-				avg=backup;
-				avg.show();
+			if(manualHappy.getState() == true) {	
+
+				IJ.log("Checking what the skeleton looks like");
+				IJ.run(avg, "Skeletonize (2D/3D)", "");
+
+				//Check if the user is still happy
+				skeletonFirstCheck = dialogUserApproval("Skeleton satisfactory?", "Happy with the skeleton?");
+
+				if(skeletonFirstCheck.getState() == true) {
+
+					editImage = false;
+					backup.close();
+					
+				}
+			}
+			
+			if(skeletonFirstCheck.getState() == false || manualHappy.getState() == false) {
+				replaceWithBackup(avg, backup);
 			}
 		}
 
@@ -487,12 +475,7 @@ public static thresholdingGrandFunction(avg) {
 			//roiDetails[0][2].addAll(roiDetailsMore[0][2]);
 
 			//Check if the user is happy with the result
-			NonBlockingGenericDialog roiRemovalRedo = new NonBlockingGenericDialog("ROI Removal");
-			roiRemovalRedo.addCheckbox("Happy with the ROI removal?", false);
-			roiRemovalRedo.showDialog();
-
-			roiRemovalIndex = roiRemovalRedo.getCheckboxes();
-			roiRemovalHappy = roiRemovalIndex.get(0);
+			roiRemovalHappy = dialogUserApproval("ROI Removal", "Happy with the ROI removal?");
 
 			//If they're happy, we close the backup and add the mask to our arrayList of masks and increase timesRun
 			if(roiRemovalHappy.getState() == true) {				
@@ -502,11 +485,7 @@ public static thresholdingGrandFunction(avg) {
 			//Otherwise we close the input and the mask and set the backup to the main image
 			} else {
 				tempSelect.close();
-				avg.changes = false;
-				avg.close();
-				backup.setTitle(avgName);
-				avg=backup;
-				avg.show();
+				replaceWithBackup(avg, backup);
 			}
 				
 		}
@@ -515,11 +494,7 @@ public static thresholdingGrandFunction(avg) {
 		if(choice == 0) {	
 
 			//Close the input image and set the backup as the main image so we go back to the menu with a fresh clean image
-			avg.changes = false; 
-			avg.close();
-			babyFresh.setTitle(avgName);
-			avg=babyFresh;
-			avg.show();
+			replaceWithBackup(avg, babyFresh);
 
 			babyFresh=avg.duplicate();
 
@@ -667,8 +642,8 @@ public static thresholdingGrandFunction(avg) {
 }
 
 //Example inputs for the function (called a method in java?)
-String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
-//String dir = "/Users/Devin/Downloads";
+//String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
+String dir = "/Users/Devin/Downloads";
 String toFind = "WideFOV";
 
 //Declare the arrraylist to fill outside the function
@@ -700,6 +675,9 @@ for (File file:output) {
 	if(file.getAbsolutePath().contains(channel)) {
 		imp=IJ.openImage(file.getAbsolutePath());
 		String name = imp.getTitle();
+		impSlices=imp.getNSlices();
+
+		remainder = impSlices%FperZ;
 		
 		//imp.show();
 		//String [] test = WindowManager.getImageTitles();
@@ -710,6 +688,24 @@ for (File file:output) {
 		
 		//Here we register the open image then grouped z project it according to the user input of how many frames per Z were taken
 		IJ.run(imp, "MultiStackReg", ""+name+" action_1=Align file_1=[] stack_2=None action_2=Ignore file_2=[] transformation=Translation");
+
+		//This isn't working  - fix
+
+		if(false) {
+
+		while(remainder!=0){
+			GenericDialog userInputs = new GenericDialog("Not divisible by frame averaging value");
+			userInputs.addNumericField("Number of frames per plane: ", 0, 0);
+			userInputs.showDialog();
+			
+			int FperZ = userInputs.getNextNumber();
+
+			remainder = impSlices%FperZ;
+
+			}
+
+		}
+		
 		IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+FperZ+"");
 		imp.close();
 		
@@ -717,9 +713,8 @@ for (File file:output) {
 		String avgName = "AVG_"+name;
 		avg = WindowManager.getImage(avgName);
 		
-		//Turn avg into an 8 bit image and median smooth it
+		//Turn avg into an 8 bit image
 		IJ.run(avg, "8-bit", "");
-		//IJ.run(avg, "Median 3D...", "x=2 y=2 z=2");
 
 		calibratedUnit = avg.getCalibration().getXUnit();
 
@@ -736,10 +731,6 @@ for (File file:output) {
 
 		IJ.log("ROI Volume Removed: " + IJ.d2s(roiVolumeRemoved, 9));
 
-		System.exit();	
-	
-		IJ.run(avg, "Skeletonize (2D/3D)", "");
-		avg.show();
 		System.exit();	
 		//IJ.run(avgNameSmooth, "Analyze Skeleton (2D/3D)", "prune=[lowest intensity voxel] show display original_image="+dupName+"");
 		IJ.run(avg, "Analyze Skeleton (2D/3D)", "prune=[shortest branch] show display");
