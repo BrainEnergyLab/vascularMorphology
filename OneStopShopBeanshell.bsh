@@ -369,6 +369,8 @@ public static thresholdingGrandFunction(avg) {
 		
 	}
 
+	//Next stages here - add options for smoothing of images, and maybe don't bother with roi removal prior to first autothresh trial - maybe don't have any of that, just hvae the menu section?
+
 	//If the autothresholding was bad..
 	while(goodThreshChoice.getState() == true) {
 
@@ -525,7 +527,7 @@ public static thresholdingGrandFunction(avg) {
 
 	}
 	
-//Now we check if the user has run the roiRemoval function, and if they have then we have to calculate the volume they've removed
+	//Now we check if the user has run the roiRemoval function, and if they have then we have to calculate the volume they've removed
 	if(timesRun>0) {
 
 		//A string to store the list of masks to use when adding them together
