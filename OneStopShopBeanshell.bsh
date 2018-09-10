@@ -1,3 +1,14 @@
+//Written by Devin 10/9/18
+//Code for taking 2P vessel morphology stacks, processing them, and outputting a distance map and 3d skeleton coordinates for use with matlab
+//to find diameters and vessel density etc.
+
+//User inputs: the directory where 2P vessel morphology images are stored, and which string is used to identify them
+//The macro assumes all images in the directory selected are in the same channel, so move images with vessels in different channels to different directories
+
+//Dependencies:
+//Skeletonizes 2D/3D and analyze skeleton
+//Voxel Counter and MultiStackReg
+
 import ij.IJ; //Import this so that we can use imageJ to open the image
 import ij.gui.GenericDialog; //Import so we can create dialog boxes
 import ij.gui.WaitForUserDialog; //Import to allow us to wait for user input
@@ -11,96 +22,76 @@ import ij.plugin.Duplicator; //Import so we can create substacks using the dupli
 import ij.process.ImageProcessor; //Import so we can invert the LUT after thresholding
 import ij.plugin.PlugIn; //Import so we can save things without prompting to save changes
 import ij.plugin.frame.RoiManager; //Import so we can work with the roi manager
+import ij.io.DirectoryChooser; //Import so the user can select a directory from a dialog box
 
-/////////////////////////
-import ij.plugin.filter.Analyzer;  //Not sure what this does...try running without
-////////////////////////
+//Import these so we can use analyze skeleton
+import sc.fiji.analyzeSkeleton.AnalyzeSkeleton_;
+import sc.fiji.analyzeSkeleton.Edge;
+import sc.fiji.analyzeSkeleton.Point;
 
-//This is to create a int array of a number sequence going from the beginning to the end
-public static makeIntSequence(int begin, int end) {
-	//Create array to be filled
-	int[] numberSequence = new int[(end-begin)+1];
-	position = 0;
-	//Loop through array, filling it with sequential integers
-	for(i=begin; i<end; i++) {
-		numberSequence[position] = i;
-		position++;
-	}
-	//Return the output
-	return numberSequence;
-}
+//Argsin are the directory to search and the substring to search for
+public static listFilesAndFilesSubDirectories(String directoryName, String substring) {
 
-//Argsin are the directory to search, the substring to search for, and an arraylist declared outside the function to fill with matching locations
-public static listFilesAndFilesSubDirectories(String directoryName, String substring, ArrayList fileLocations) {
+	//Here we declare our listOfFiles as a file array containing the list of files in the directoryName
+	File [] listOfFiles = new File(directoryName).listFiles();
 
-	//Here we declare our folder as a file variable for our directory and create a file array of the files within folder
-	File folder = new File(directoryName);
-	File [] listOfFiles = folder.listFiles();
-	
+	//Arraylist to add our file locations to
+	ArrayList fileLocations = new ArrayList();
+
 	//Loop through the files in the file list
 	for (File file:listOfFiles) {
-		//If the file we're checking is a file and not a directory
-		if (file.isFile()) {
-			//And if it contains the substring we're interested in within its full path
-			if(file.getAbsolutePath().contains(substring)) {
-				//We store the full path in the output ArrayList;
-				String stringForm = file.getAbsolutePath();
-				File fileForm = new File(stringForm);
-				fileLocations.add(fileForm);
-			
-			}
+		//If the file we're checking is a file and not a directory and if it contains the substring we're interested in within its full path
+		//We check against the absolute path of our file in lower case on both counts
+		if (file.isFile() && file.getAbsolutePath().toLowerCase().contains(substring.toLowerCase())) {
+			//We store the full path in the output ArrayList;
+			fileLocations.add(file.getAbsoluteFile());
+			IJ.log(file.getAbsolutePath());
 		//If the file we're checking is a directory, then we run the whole thing on that directory
 		} else if (file.isDirectory()) {
-			listFilesAndFilesSubDirectories(file.getAbsolutePath(), substring, fileLocations);           
+			listFilesAndFilesSubDirectories(file.getAbsolutePath(), substring);           
 		}
 	}
 
-	//Here we convert out ArrayList to a string array and return it
+	//Here we convert out ArrayList to a file array and return it
 	File[] arrayForm = fileLocations.toArray(new File[0]);
 	return arrayForm;
 }
 
-//This asks the user if they wish to remove ROIs from the image, and outputs the area of ROI removed and over what range of slices
-//Argsin are just the title of the image to be ROI edited
-public static roiRemoval(image, boolean removeROIs, int timesRun) {
+//Argsin are just the title of the image to be ROI edited, and how many times the function has been run before
+public static roiRemoval(image, int timesRun) {
 
 	//Create an arraylist to store the beginning and ending slices set by the user for each roi
 	ArrayList slicesToRemove = new ArrayList();
 
-	//Create variable to count how many ROIs we clear
+	//Create variable to count how many ROIs we create
 	int count = 0;
 
-	image.show();
-
 	//Get the dimensions of the image, and create a new blank image in the same dimensions that will store the masks of the rois created
+	//[0] = width; [1] = height; [3] = slices
+	
 	int[] imageDimensions = image.getDimensions();
 	maskImage = IJ.createImage("Mask", "8-bit black", imageDimensions[0], imageDimensions[1], imageDimensions[3]);
-	//[0] = width; [1] = height; [3] = slices
-
-	//Find out what unit the input image is calibrated in
-	calibratedUnit = image.getCalibration().getXUnit();
-
-	//If the image isn't calibrated in um, prompt the user to calibrate it in um until it is
-	while(calibratedUnit!="µm") {	
-		new WaitForUserDialog("Calibration", "Calibrate the image into um in the next window").show();
-		IJ.run(image, "Properties...", "");
-		calibratedUnit = image.getCalibration().getXUnit();
-		}
 
 	//Open the ROI manager and create a variable to refer to the open instance
 	IJ.run("ROI Manager...", "");
 	RoiManager rm = RoiManager.getInstance();
+
+	//Set this condition to true, and only stop roiRemoval process when it is set to false by the user
+	removeROIs = true;
+
+	//Show the input image
+	image.show();
 		
-	//If the checkbox was true (to create ROIs), then enter the loop for removing bits of the image
+	//While true, enter the roi removal condition
 	while (removeROIs == true) {
 			
-		//Show the avg image then ask the user for input
+		//Ask the user to draw around what they want to remove and to go to the slice to start the removal from
 		new WaitForUserDialog("ROI selection", "Draw a ROI to exclude from image if desired, and set the stack to the slice you want to start at").show();
 			
 		//Get the number of the slice set
 		int startSlice = image.getSlice();
 
-		//Get the slice chosen by the user as the end and calculate difference
+		//Get the slice chosen by the user at the end
 		new WaitForUserDialog("ROI selection", "Set the slice where you want the ROI to end").show();
 		int endSlice = image.getSlice();
 
@@ -118,13 +109,17 @@ public static roiRemoval(image, boolean removeROIs, int timesRun) {
 			slicesToRemove.add(startSlice);
 			slicesToRemove.add(endSlice);
 
+			//We show our mask image as we need this in order to clear it and this way keep a record of what we've cleared
 			maskImage.show();
 				
 			//Loop through the slices from start to end, each time clearing the area within the ROI in our input and mask images image
 			for (int clearSlice = startSlice; clearSlice <= endSlice; clearSlice++) {
+				//Input image
 				image.setSlice(clearSlice);
 				IJ.run(image, "Clear", "slice");
 				IJ.run(maskImage, "Select None", "");
+
+				//Mask image
 				IJ.selectWindow("Mask");
 				RoiManager rm = RoiManager.getInstance();
 				rm.select(count);
@@ -132,6 +127,7 @@ public static roiRemoval(image, boolean removeROIs, int timesRun) {
 				IJ.run(maskImage, "Fill", "slice");		
 			}
 
+			//Hide the mask image until necessary again
 			maskImage.hide();	
 	
 			//Create a dialog to ask the user whether they want to manually remove any more ROIs - if yes we repeat the loop
@@ -147,64 +143,41 @@ public static roiRemoval(image, boolean removeROIs, int timesRun) {
 	//Make sure there are no selections on the mask image
 	IJ.run(maskImage, "Select None", "");
 	
-	//Clear the selection of the last ROI
+	//Clear the selection of the last ROI on the input image
 	IJ.run(image, "Select None", "");
 
 	//Here we rename our mask image to how many times we've run the removeROI function, as at the end of all roi removals we need to be able to refer to the masks from each run
-	timesRunString = Integer.toString(timesRun);
-	maskImage.setTitle("Mask " + timesRunString);
+	maskImage.setTitle("Mask " + Integer.toString(timesRun));
+
+	//We need to show the mask here as in order to add it to the arraylist it must be shown
 	maskImage.show();	
 	
 	//Clear the roi manager
 	rm.runCommand("Deselect");
 	rm.runCommand("Delete");
-	
-}
 
-//Here we create a custom class that will allow us to return both a string and checkbox value from the autoThreshTryAll function
-public class returningValues {
-	public final String threshChoice;
-	public final boolean goodThresh;
-
-	public returningValues(String threshChoice, boolean goodThresh) {
-		this.threshChoice=threshChoice;
-		this.goodThresh=goodThresh;
-	}
-
-	//This is how we return the string value i.e. returningValues.getThreshChoice();
-	public String getThreshChoice() {
-		return this.threshChoice;
-	}
-
-	//This is how we return the checkbox value i.e. returningValues.getGoodThresh();
-	public boolean getGoodThresh() {
-		return this.goodThresh;
-	}
+	//return the mask image for easy reference outside the function
+	return maskImage;
 	
 }
 
 //Function to try all the autoThresh options and get user input after making a small substack of the input image
-public static returningValues autoThreshTryAll(avg) {
+public static autoThreshTryAll(avg) {
 			
 	//Here we create a 5 slice substack of our smoothed, cleaned image, so that we can try out the auto thresholds on it
 	threshTest = new Duplicator().run(avg, 1, 5);
 	threshTest.show();
 
 	//This runs the try all action for the auto threshold method
-	IJ.run(threshTest, "Auto Threshold", "method=[Try all] white stack use_stack_histogram");
+	IJ.run(threshTest, "Auto Threshold", "method=[Try all] white stack");
 	threshStack = WindowManager.getImage("Stack");
 
 	//These string arrays are for choosing which thresholding method to use
-
-	//This method of going from int[] to string[] isn't wokring
-
-	//threshChoiceInt = makeIntSequence(1, 16);
-	//String[] threshChoice = Arrays.toString(threshChoiceInt).split("[\\[\\]]")[1].split(",");
-
+	//Each index in threshChoice corresponds to the method in threshNames
 	String [] threshChoice =  {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"};
-	String [] threshNames = {"Default", "Huang", "Huang2", "Intermodes", "IsoData", "Li", "MaxEntropy", "Mean", "MinError(I)", "Minimum", "Moments", "Otsu", "Percentile", "RenyiEntropy", "Shanbhag", "Triangle"};
 			
 	//Create a non-blocking dialog so the user can still check the image whilst choosing
+	//Ask the user which threshold option worked best, and also whether none of them are good
 	NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Auto Threshold Choice");
 	userInputs.addChoice("Which panel worked the best?", threshChoice, "1");
 	userInputs.addCheckbox("Tick if you're not happy with any of the options", false);
@@ -215,40 +188,47 @@ public static returningValues autoThreshTryAll(avg) {
 	threshStack.close();
 
 	//Get the choices from the dialog box and the associted thresholding method
-	int choice = userInputs.getNextChoiceIndex();
-	String threshSelected = threshNames[choice];
-			
-	goodThresh = userInputs.getCheckboxes();
-	goodThreshChoiceCheckbox = goodThresh.get(0);
-	goodThreshChoice = goodThreshChoiceCheckbox.getState();	
+	int choice = userInputs.getNextChoiceIndex()+1;
 
-	//Put these choices in the returningValues class
-	returningValues output = new returningValues(threshSelected, goodThreshChoice);
+	//Get whether the user is happy with the threshold options 
+	goodThreshChoice = userInputs.getCheckboxes().get(0).getState();	
+
+	//If the user isn't happy with any of the choices, set the threshold selected to 0
+	if(goodThreshChoice == true) {
+		choice = 0;
+	}
 
 	//Close the threshTest image
 	threshTest.close();
 		
-	//Return this as output
-	return output;
+	//Return the thresh selected
+	return choice;
 			
 }
 
-//Function for manual thresholding of an image avg
+//Function for manual thresholding of an image
 public static manualThresholding(avg) {
 
-	//Start the manual thresholding commands and wait for the user to complete it
+	//Ask the user to do their own manual thresholding, and click ok when done
 	new WaitForUserDialog("Manual thresholding", "Manually threshold the image then proceed").show();
 	//If after thresholding the image has an inverted LUT, we flip it
 	if(avg.isInvertedLut() == true) {
 		IJ.run(avg, "Invert LUT", "");
 	}
-	//Now we check that the image foreground and background are correctly set
+	//Now we ask the user to check that the image foreground and background are correctly set
 	new WaitForUserDialog("Check image", "Make sure that vessels are in white on a black background, then proceed").show();
+
+	//Check if the user is happy with the outcome of the manual thresholding
+	manualHappy = dialogUserApproval("Manual Thresholding", "Happy with the manual threshold?");
+
+	//Return their choice
+	return manualHappy;
+	
 }
 
-//This is to replace the image avg, with another image backup
-//So that for all variable and title purposes backup is now avg
+//This is to replace the image avg with another image backup so that for all variable and title purposes backup is now avg
 public static replaceWithBackup(avg, backup) {
+	
 	//Get the title of avg, close it without changes, set backup to the same title and reassign it to the avg variable and return it
 	String avgName = avg.getTitle();
 	avg.changes = false;
@@ -268,143 +248,146 @@ public static dialogUserApproval(String dialogTitle, String dialogText) {
 	userInputs.showDialog();
 
 	//We get a vector of checkbox choices, then get the first checbox choice, then get its state to get the boolean out
-	checkboxVector = userInputs.getCheckboxes();
-	firstCheckbox = checkboxVector.get(0);
-	checkboxBoolean = firstCheckbox.getState();
+	checkboxBoolean = userInputs.getCheckboxes().get(0).getState();
 
 	return checkboxBoolean;
 }
 
-//This is for dealing with skeletons once they've been generated, you input the skeleton as image, the number of times you've run the roiRemoval function
-//as timesRun, and the arrayList where we're storing our roiRemoval masks as maskImageList
-public static skeletonCheckAndEdit(image, int timesRun, ArrayList maskImageList) {
-
-	//choiceMade is whether we've made a choice re: the final outcome of skeleton the image, set to false initially
-	choiceMade = false;
-	//We create a new arrayList to store our output from the function
-	ArrayList outputList = new ArrayList();
-	//Define a variable skelGood as we alter this depending on whether we want to keep or forget about the skeleton
-	int skelGood = 2;
-
-	//Whilst we haven't made a final choice
-	while(choiceMade == false) {
-
-		//Create a 3D projection of the skeleton so we can use this to help us make our assessment
-		image.show();
-		IJ.run(image, "3D Project...", "projection=[Brightest Point] axis=Y-Axis slice=1 initial=0 total=360 rotation=10 lower=1 upper=255 opacity=0 surface=100 interior=50");
-		threeDImage = IJ.getImage();
-
-		//Here we create a dialog box with the following options seen in the string array
-		String [] skeletonEditChoices = {"Despeckle the skeleton", "Remove parts of the skeleton", "Proceed with skeleton as is", "Return to the non-skeletonised image to make changes"};
-								
-		NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Skeleton editing");
-		userInputs.addChoice("Skeleton editing options", skeletonEditChoices, "Remove parts of the skeleton");
-					
-		userInputs.showDialog();			
-		
-		skelEdit = userInputs.getNextChoiceIndex();
-
-		//Close the 3D image - we'll generate a new one if the final choice isn't made again
-		threeDImage.close();
-
-		//If the user wants to despeckle the skeleton
-		if(skelEdit == 0) {
-			IJ.run(image, "Despeckle", "stack");
-		//Otherwise if the user wants to remove bits of the skeleton
-		} else if (skelEdit==1) {
-
-			//We create a backup of the image then run the roiRemoval function
-			backup = image.duplicate();	
-			roiRemoval(image, true, timesRun);
-
-			//Create a variable for the mask that was output by the function
-			IJ.log("Mask " + Integer.toString((timesRun)));
-			tempSelect = WindowManager.getImage("Mask " + Integer.toString((timesRun)));
-			tempSelect.hide();
-
-			//Find out if the user is happy with the removal
-			skelRoiRemovalHappy = dialogUserApproval("ROI Removal", "Happy with the ROI removal?");	
-
-			//If so, we add the mask image to the arrayList, increase timesRun, and close the backup we previously made
-			if(skelRoiRemovalHappy == true) {
-				maskImageList.add(tempSelect);
-				timesRun++;
-				backup.close();
-			//Else we close the mask and replace our roiRemoved image with our backup image using the replaceWithBackup function
-			} else {
-				tempSelect.close();
-				image = replaceWithBackup(image, backup);
-			}
-		//If the user is happy with the skeleton, the final choice is made and skelGood  = 1							
-		} else if(skelEdit==2) {
-			choiceMade = true;
-			skelGood = 1;	
-		//Otherwise if the user wants to go back to the non-skeletonised image, skelGood=0
-		} else if(skelEdit==3) {
-			choiceMade = true;
-			skelGood = 0;
-		}
-	}
-
-	//Add skelGood at the first index in our output arraylist, and timesrun in the second
-	outputList.add(skelGood);
-	outputList.add(timesRun);
-							
-	return outputList;
-}
-
 //Function to skeletonise the image and then create 3D projections of the skeletonised image and the backup image to help the user asses the quality of skeletonisation
-//we also ask the user if they're happy with the skeleton, and if not, call the skeletonCheckandEdit function 
+//User is also given the option to edit the skeleton and either proceed or revert back to the non-skeletonised image for further edits
+//Image is the skeleton, backup is a raw non-skeletonised, non thresholded image, timesRun is how many times removeRois has been run, and maskImages is the arraylist of
+//the mask images we've generated from removeRois
 public static skeletonChecking(image, backup, int timesRun, ArrayList maskImages) {		
 
-	//ArrayList to save the choices the user makes
-	ArrayList choices = new ArrayList();
-
+	//This variable stores whether the user is happy or with the skeleton after editing - if happy it gets set to 1, otherwise to 0, so if it remains set
+	//at 2 we know the user didn't edit the image
 	int skelGood=2;
 	
-	IJ.log("Checking what the skeleton looks like");
+	//Skeletonise the input image
 	IJ.run(image, "Skeletonize (2D/3D)", "");
 
-	//Create 3D projections of the raw image (backup) and the skeleton to help the user decide
-	IJ.run(image, "3D Project...", "projection=[Brightest Point] axis=Y-Axis slice=1 initial=0 total=360 rotation=10 lower=1 upper=255 opacity=0 surface=100 interior=50");
-	threeDImage = IJ.getImage();
+	//Get the calibration in Z of the input image
+	imageZSize = image.getCalibration().pixelDepth;
 
-	IJ.run(backup, "3D Project...", "projection=[Brightest Point] axis=Y-Axis slice=1 initial=0 total=360 rotation=10 lower=1 upper=255 opacity=0 surface=100 interior=50");
+	//Create 3D projections of the raw image (backup) and the skeleton to help the user assess skeleton
+	IJ.run(image, "3D Project...", "projection=[Brightest Point] axis=Y-Axis slice="+imageZSize+" initial=0 total=360 rotation=10 lower=1 upper=255 opacity=0 surface=100 interior=50");
+	threeDImage = IJ.getImage();
+	threeDImageTitle=threeDImage.getTitle();
+
+	IJ.run(backup, "3D Project...", "projection=[Brightest Point] axis=Y-Axis slice="+imageZSize+" initial=0 total=360 rotation=10 lower=1 upper=255 opacity=0 surface=100 interior=50");
 	threeDImageRaw = IJ.getImage();
 
+	//Show the raw image
 	image.show();
 
-	//Check if the user is still happy
+	//Check if the user is happy with the skeleton
 	skeletonFirstCheck = dialogUserApproval("Skeleton satisfactory?", "Happy with the skeleton?");
-
-	//Close the 3D skeleton image
-	threeDImage.close();
 	
 	//If the user was happy
 	if(skeletonFirstCheck == true) {
 
-		//Close the raw 3D image, and show the raw image
+		//Close the 3D projections and the backup
 		threeDImageRaw.close();
-		backup.show();
+		backup.close();
+		threeDImage.close();
 
 	//If not
 	} else {
 
-		//We run the skeletonCheckAndEdit function on the skeleton
-		skelCheckOutput = skeletonCheckAndEdit(image, timesRun, maskImages);
+		//choiceMade is whether we've made a choice re: the final outcome of the skeleton after editing, set to false initially
+		choiceMade = false;
 
-		//Get the outputs from that function
-		skelGood = skelCheckOutput.get(0);
-		timesRun = skelCheckOutput.get(1);
+		//Whilst we haven't made a final choice, we enter this condition
+		while(choiceMade == false) {
 
-		//If the user is now happy, show the backup, and close the raw3D image
-		if(skelGood == 1) {
-			backup.show();
-			threeDImageRaw.close();
+			//Show the skeleton
+			image.show();
+
+			//If the 3D skeleton isn't open already (will be open during first run, but not during subsequent loops) then run the 3D projeciton of it and
+			//reassign the variables to it
+			if(WindowManager.getWindow(threeDImageTitle)==null) {
+				IJ.run(image, "3D Project...", "projection=[Brightest Point] axis=Y-Axis slice="+imageZSize+" initial=0 total=360 rotation=10 lower=1 upper=255 opacity=0 surface=100 interior=50");
+				threeDImage = IJ.getImage();
 			}
+
+			//Here we create a dialog box with the following options seen in the string array
+			String [] skeletonEditChoices = {"Despeckle the skeleton", "Remove parts of the skeleton", "Proceed with skeleton as is", "Return to the non-skeletonised image to make changes"};
+
+			//Ask the user for their choices
+			NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Skeleton editing");
+			userInputs.addChoice("Skeleton editing options", skeletonEditChoices, "Remove parts of the skeleton");
+					
+			userInputs.showDialog();			
+		
+			skelEdit = userInputs.getNextChoiceIndex();
+
+			//Close the 3D image - we'll generate a new one on the next iteration if the final choice isn't made
+			threeDImage.close();
+
+			//If the user wants to despeckle the skeleton
+			if(skelEdit == 0) {
+
+				//Backup the skeleton
+				skelEditBackup = image.duplicate();	
+
+				//Despeckle the image
+				IJ.run(image, "Despeckle", "stack");
+
+				//Find out if the user is happy with the despeckle
+				skelDespeckleHappy = dialogUserApproval("Skel despeckle", "Happy with the despeckle?");
+
+				//If so, close the backup and go back to the menu, otherwise replace the skeleton with the backup and go back to the menu
+				if(skelDespeckleHappy == true) {
+					skelEditBackup.close();
+				} else {
+					image = replaceWithBackup(image, skelEditBackup);
+				}
+				
+			//if the user wants to remove bits of the skeleton
+			} else if (skelEdit==1) {
+
+				//We create a backup of the image then run the roiRemoval function
+				skelEditBackup = image.duplicate();	
+				roiMask = roiRemoval(image, timesRun);
+
+				//Find out if the user is happy with the removal
+				skelRoiRemovalHappy = dialogUserApproval("ROI Removal", "Happy with the ROI removal?");	
+
+				//If so, we add the mask image to the arrayList of created mask images, increase timesRun, and close the backup we previously made
+				if(skelRoiRemovalHappy == true) {
+					maskImages.add(roiMask);
+					timesRun++;
+					skelEditBackup.close();
+					roiMask.hide();
+				//Else we close the mask and replace our roiRemoved image with our backup image using the replaceWithBackup function
+				} else {
+					roiMask.close();
+					image = replaceWithBackup(image, skelEditBackup);
+				}
+
+			//If the user has made a final choice, set choiceMade to true and close the raw 3d image
+			} else if(skelEdit==2 || skelEdit ==3) {
+				choiceMade = true;
+				threeDImageRaw.close();
+			}
+
+			//If the user is happy with the skeleton, skelgood = 1 and we close the non-thresholded backup
+			if(skelEdit==2) {
+				skelGood = 1;
+				backup.close();
+			//Otherwise skelgood = 0
+			} else if (skelEdit==3) {
+				skelGood = 0;
+			}
+
+		}
+
 	}
 
-	//Store whether the user was happy with the first skeleton check, and then if they were happy after editing it and return this
+	//ArrayList to save the choices the user makes
+	ArrayList choices = new ArrayList();
+
+	//Return whether the user was happy with the first skeleton check, and then if they were happy after editing, and how many times roiRemoval was run
 	choices.add(skeletonFirstCheck);
 	choices.add(skelGood);
 	choices.add(timesRun);
@@ -413,457 +396,781 @@ public static skeletonChecking(image, backup, int timesRun, ArrayList maskImages
 
 }
 
-//Example inputs for the function (called a method in java?)
-//String dir = "E:/Dropbox (Brain Energy Lab)/Everything/2P data/Devin/";
-String dir = "/Users/Devin/Downloads";
-String toFind = "WideFOV";
+//This looks for the string toCheck within the file array parentFiles, and if it finds it, alters to toAlter int to 1
+//Used for taking an int variable set to 0 and setting it to 1 if we find a file with the toCheck string
+public static lookingForSomething(File [] parentFiles, int toAlter, String toCheck) {
+	for(File statusCheck:parentFiles) {
+		//We lowercase the toCheck and the filepath to avoid any case sensitivity to checking
+		//If they match, we print the name that matches and set the toAlter variable to 1 and break after finding the first file
+		if(statusCheck.getAbsolutePath().toLowerCase().contains(toCheck.toLowerCase()) == true) {
+			IJ.log(statusCheck.getName());
+			toAlter = 1;
+			break;
+		}
+	}
+	//Return the final value of toAlter
+	return toAlter;
+}
 
-//Declare the arrraylist to fill outside the function
-ArrayList fileLocations = new ArrayList();
+//Function to calculate the volume removed by roiremoval - uses an input of parsedImage which is a mask image of all cleared rois - black pixels are counted
+//so this needs to be a condition
+//Voxelvolume is the size of a voxel in calibrated units
+public static calculateVolRemoved(parsedImage, voxelVolume) {
 
-//Here we return the output of the method into a file array
-System.out.println("Start");
-File [] output = listFilesAndFilesSubDirectories(dir, toFind, fileLocations);
-System.out.println("End");
+	//Run the voxel counter - counts all the voxels in black
+	IJ.run(parsedImage, "Voxel Counter", "");
+	//Get out the number of voxels counted as a double array, voxelCount
+	ResultsTable rt = ResultsTable.getResultsTable();
+	voxelCount = rt.getColumnAsDoubles(0);
 
-//Here we create a dialog box for user input
-//choiceArray is a list of channels the user can select
-//channelNames are the associated substrings with those channels
+	totalSlices=parsedImage.getNSlices();
+						
+	//Loop through all the values in voxelCount and tally up how many total voxels have been cleared
+	total = 0;
+	for(voxelTotalVar=0; voxelTotalVar<totalSlices; voxelTotalVar++) {
+		total = total + voxelCount[voxelTotalVar];
+	}
+	
+	//Calculate the volume removed by taking the total X voxelVolume
+	volumeRemoved=voxelVolume*total;
 
-//This way of getting a int array to a string array isn't working properly
+	//Return the volume removed
+	return volumeRemoved;
 
-//choiceArrayInt = makeIntSequence(1, 4);
-//String[] choiceArray = Arrays.toString(choiceArrayInt).split("[\\[\\]]")[1].split(",");
+}
 
-String [] choiceArray =  {"1", "2", "3", "4"};
-String [] channelNames = {"ch_1", "ch_2", "ch_3", "ch_4"};
+//Ask the user to select the directory we want to look within for our 2P vessel morphology images and get this out as a string
+DirectoryChooser userDir = new DirectoryChooser("Select 2P Vessel Morphology Directory");
+String dir = userDir.getDirectory();
 
-GenericDialog userInputs = new GenericDialog("User Inputs");
-userInputs.addNumericField("Number of frames per plane: ", 0, 0);
-userInputs.addChoice("Which channel to use", choiceArray, "2");
-userInputs.showDialog();
+String [] channelSelection = {"1", "2", "3", "4"};
+String [] channels = {"ch_1", "ch_2", "ch_3", "ch_4"};
 
-//Retrive the choices as integers, or as a string in the case of channel
-int choice = userInputs.getNextChoiceIndex();
-double FperZ = userInputs.getNextNumber();
-String channel = channelNames[choice];
+//Ask the user to input the string they want to use to identify 2P vessel morphology experiments
+GenericDialog userInput  = new GenericDialog("User Inputs");
+userInput.addStringField("String to identify vessel morphology experiments", "WideFOV", 8);
+userInput.addChoice("Which channel are the vessels in?", channelSelection, "2");
+userInput.showDialog();
+
+//Return this input as a lower case string
+String toFind = userInput.getStringFields().get(0).getText().toLowerCase();
+
+//Get channel chosen by the user
+int skelEdit = userInput.getNextChoiceIndex();
+
+//Find files in the chosen directory that contain our string toFind
+File [] output = listFilesAndFilesSubDirectories(dir, toFind);
 
 //Here we go through our list of file locations and open ones that include ch_2 (i.e. they are TexasRed) if selected channel is 2
 for (File file:output) {
-	if(file.getAbsolutePath().contains(channel)) {
-		//imp=IJ.openImage("/Users/Devin/Downloads/cleared.tif");
-		imp=IJ.openImage(file.getAbsolutePath());
-		String name = imp.getTitle();
-		impSlices=imp.getNSlices();
-
-		remainder = impSlices%FperZ;
+	if(file.getAbsolutePath().contains(channels[skelEdit])) {
 		
-		//imp.show();
-		//String [] test = WindowManager.getImageTitles();
-		//System.out.println(test[0]);
-		//System.out.println(name);
-		//here = WindowManager.getImage(name);
-		//System.exit();	
+		//Here we get the parent directory that our wideFOV ch2 image is in and find its associated ini file
+		File parentDirFile = file.getParentFile(); //File form to be used in making array of files from this directory
+		String parentDir = file.getParent(); //String form for use in saving images
+
+		//This is a list of all the files in the parent directory
+		File[] parentFiles = parentDirFile.listFiles();
+
+		//We create these variables to determine whether we've done thresholding, distance mapping, and skeleton analysis for the current image in question
+		//and set to 0 by default
+		thresholdingDone = 0;
+		distanceMapDone = 0;
+		skeletonDone = 0;
+
+		//If we find any image containing the string thresholdedimage in our directory, set thresholdingdone to 1, otherwise all will be set to 0 as we need
+		//the thresholded image to complete any of the other steps
+		thresholdingDone = lookingForSomething(parentFiles, thresholdingDone, "thresholdedimage");
+
+		//If the thresholded image exists, we look for a dmap file, and if we find it, set distanceMapDone to 1, but otherwise it and skeletondone will remain
+		//at 0 as to do the skeleton we will have had to already do the distance map
+		if(thresholdingDone == 1) {
+			distanceMapDone = lookingForSomething(parentFiles, distanceMapDone, "dmap");
+		}
+
+		//Finally, if the distance map was done, we look for the skeleton coordinates, and if they exist, set skeleton done to 1
+		if(distanceMapDone == 1) {
+			skeletonDone = lookingForSomething(parentFiles, skeletonDone, "3dcoords");
+		}
+	
+		//Here we declare variables for our frames per z, and our pixels sizes, as these will be filled in by the code immediately after, but are needed
+		//beyond this section
+		int FperZ;
+		double xPxlSize;
+		double yPxlSize;
+		double zPxlSize;
+
+		//If the skeleton hasn't been analyzed (so if we haven't completely finished analysing the image)
+		if(skeletonDone == 0) {
 		
-		//Here we register the open image then grouped z project it according to the user input of how many frames per Z were taken
-		//IJ.run(imp, "MultiStackReg", ""+name+" action_1=Align file_1=[] stack_2=None action_2=Ignore file_2=[] transformation=Translation");
+			//We loop through the files in the parent directory and if any of them are an ini file
+			for(File iniCheck:parentFiles) {
+				if(iniCheck.getAbsolutePath().toLowerCase().contains("ini")) {
+					//We open the ini file as a string and retrieve the indices of the x, y, and z pixel sizes, as well as the number of frames per plane
+					//in addition we find the indices of the info that follows from those we're interested in so we can use them to cut substrings
+					iniText = ij.IJ.openAsString(iniCheck.getAbsolutePath());
+					
+					xPxlIndex = iniText.indexOf("x.pixel.sz = ");
+					yPxlIndex = iniText.indexOf("y.pixel.sz = "); //This immediately follows x pixel size
+					xVoltage = iniText.indexOf("x.voltage = "); //This follows y pixel size
+					
+					zSpacingIndex = iniText.indexOf("z.spacing = ");
+					nrPlanesIndex = iniText.indexOf("nr.of.planes"); //This follows z spacing (i.e. pixel depth)
+					
+					framesPerPlaneIndex = iniText.indexOf("frames.per.plane");
+					framesPerZCycle = iniText.indexOf("frames.per.z.cycle"); //This follows frames per plane
+		
+					//Here we cut the substrings into only numbers
+					xPxlSizeString = iniText.substring((xPxlIndex+13), yPxlIndex);				
+					yPxlSizeString = iniText.substring((yPxlIndex+13), xVoltage);
+					zSpacingString = iniText.substring((zSpacingIndex+12), nrPlanesIndex);
+					FperZString = iniText.substring((framesPerPlaneIndex+19), framesPerZCycle);
+		
+					//Here we convert the substrings into doubles
+					double xPxlSizeM = Double.valueOf(xPxlSizeString).doubleValue(); //in metres
+					xPxlSize = xPxlSizeM*(1e6); //in um
+					
+					double yPxlSizeM = Double.valueOf(yPxlSizeString).doubleValue(); //in metres
+					yPxlSize = yPxlSizeM*(1e6); //in um
+					
+					zPxlSize = Double.valueOf(zSpacingString).doubleValue(); // in um
+					double FperZDbl = Double.valueOf(FperZString).doubleValue();
 
-		imp.show();
+					//Here we convert our FperZ into an int, as no point in a double - it has to be an integer value
+					FperZ = (int) FperZDbl;
+				
+				}
+			}
+		}
 
-		while (remainder!=0) {
+		//Here we declare some variables again, because we need them in multiple scopes - these are for the frame averaged image, the thresholded image, 
+		//and the parsedImage - the image containing masks of all rois removed
+		ImagePlus avg;
+		ImagePlus thresholdedImage;
+		ImagePlus parsedImage;
 
-			GenericDialog userInputs = new GenericDialog("Not divisible by frame averaging value");
-			userInputs.addNumericField("Number of frames per plane: ", 0, 0);
-			userInputs.showDialog();
+		//We declare our array to contain our image dimensions, as well as the individual variables we'll use to store them
+		int[] avgDimensions;
+		int avgWidth;
+		int avgHeight;
+		int avgChannels;
+		int avgSlices;
+		int avgFrames;
+
+		//Declare the volume of our avg image, and also the volume removed by rois - we set this to 0 when declaring as if unchanged, then we haven't
+		//removed any rois and this is valid
+		double avgVolume;
+		double volumeRemoved = 0;	
+
+		//If the image hasn't been thresholded - the first step in processing
+		if(thresholdingDone == 0) {
+
+			IJ.log("Thresholding not done");
+
+			//We open the image and get it's name
+			imp=IJ.openImage(file.getAbsolutePath());
+			String name = imp.getTitle();
+		
+			//Here we register the open image using the translation technique
+			IJ.run(imp, "MultiStackReg", ""+name+" action_1=Align file_1=[] stack_2=None action_2=Ignore file_2=[] transformation=Translation");
+
+			//We show the image before group Z projecting it and then closing it
+			imp.show();
+			IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+FperZ+"");
+			imp.close();
+				
+			//Here we get the averaged image and set it as avg and retrieve the image with the avg name
+			String avgName = "AVG_"+name;
+			avg = WindowManager.getImage(avgName);
+				
+			//Turn avg into an 8 bit image
+			IJ.run(avg, "8-bit", "");
+
+			//Here we fill our variables with the dimensions of the average image etc.
+			avgDimensions = avg.getDimensions();
+			avgWidth = avgDimensions[0];
+			avgHeight = avgDimensions[1];
+			avgChannels = avgDimensions[2];
+			avgSlices = avgDimensions[3];
+			avgFrames = avgDimensions[4];
+
+			//Calculate the volume of the average image
+			avgVolume = avgWidth*avgHeight*avgSlices*xPxlSize*yPxlSize*zPxlSize;
+
+			//Calibrate the average image according to the values taken from the ini file
+			IJ.run(avg, "Properties...", "channels="+avgChannels+" slices="+avgSlices+" frames="+avgFrames+" unit=µm pixel_width="+xPxlSize+" pixel_height="+yPxlSize+" voxel_depth="+zPxlSize+"");
+
+			//Create a backup of the input image that we can revert to during image processing if we want a clean slate
+			babyFresh=avg.duplicate();
 			
-			FperZ = userInputs.getNextNumber();
-
-			remainder = impSlices%FperZ;
-			IJ.log(IJ.d2s(remainder, 3));
-
-			}
-		
-		IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+FperZ+"");
-		imp.close();
-		
-		//Here we get the averaged image and set it as avg
-		String avgName = "AVG_"+name;
-		avg = WindowManager.getImage(avgName);
-		
-		//Turn avg into an 8 bit image
-		IJ.run(avg, "8-bit", "");
-
-		calibratedUnit = avg.getCalibration().getXUnit();
-
-		//If the image isn't calibrated in um, prompt the user to calibrate it in um until it is
-		while(calibratedUnit!="µm") {	
-			new WaitForUserDialog("Calibration", "Calibrate the image into um in the next window").show();
-			IJ.run(avg, "Properties...", "");
-			calibratedUnit = avg.getCalibration().getXUnit();
-			}
-
-		double roiVolumeRemoved=0;			
-
-		//Create a backup of the input image
-		babyFresh=avg.duplicate();
+			//We count how many times we've run the roiRemoval function so that we know how many outputs we have to deal with at the end of this function
+			timesRun=0;
+			
+			//Create an array to store the maskImages output by the roiRemoval function
+			ArrayList maskImages = new ArrayList();
+			
+			//This variable is true as long as we want to keep editing our image
+			editImage=true;
 	
-		String avgName = avg.getTitle();
-		
-		//Get the pixel sizes and unit of calibration of the avg image
-		pxlWidth = avg.Calibration.pixelWidth;
-		pxlDepth = avg.Calibration.pixelDepth;
-		unit = avg.Calibration.getUnit();
-	
-		//We count how many times we've run the roiRemoval function so that we know how many outputs we have to deal with at the end of this function
-		timesRun=0;
-	
-		//Create an array to store the maskImages output by the roiRemoval function
-		ArrayList maskImages = new ArrayList();
-	
-		//This variable is true as long as we want to keep editing our image
-		editImage=true;
-	
-		//While we want to keep editing
-		while(editImage == true) {
-	
-			//Ask the user to choose between these choices
-			String [] choiceArray = {"Start from the beginning - remove all image edits","Remove ROIs", "Manually threshold the image", "Try an automated thresholding technique", "Smooth the image", "Despeckle the image" };
-				
-			NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Image Processing");
-			userInputs.addChoice("Watchu wanna do 'bout it?", choiceArray, "Start from the beginning - remove all ROI clearances and thresholding");
-			userInputs.showDialog();
-	
-			int choice = userInputs.getNextChoiceIndex();
-
-			//If the user wants to despeckle
-			if(choice ==5) {
-				backup = avg.duplicate();
-				IJ.run(avg, "Despeckle", "stack");
-
-				//Check user is happy with despeckling, if so then proceed and close the backup, else revert to backup
-				despeckleCheck = dialogUserApproval("Despeckling satisfactory?", "Happy with the despeckle?");
-	
-				if(despeckleCheck == true) {
-					backup.close();
-				} else {
-					avg = replaceWithBackup(avg, backup);
-				}
-				
-			}
-	
-			//If the user wants to smooth the image
-			if(choice == 4) {
-				
-				backup = avg.duplicate();
-				
-				String [] smoothingArray = {"Gaussian Blur 3D", "Median 3D", "Mean 3D", "Minimum 3D", "Maximum 3D", "Variance 3D"};
-				String [] despeckleArray = {"Yes, before smoothing", "Yes, after smoothing", "No"};
-				String [] pixelSizeArray = {"Pixels to smooth in x: ", "Pixels to smooth in y: ", "Pixels to smooth in z: "};
-				ArrayList pixelSizeChoices = new ArrayList();
-				
-				NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Image Smoothing");
-				userInputs.addChoice("Which smoothing technique?", smoothingArray, "Gaussian Blur 3D");
-				userInputs.addChoice("Do you want to despeckle the image?", despeckleArray, "Yes, before smoothing");
-	
-				//Add pixel size fields
-				for(fields=0; fields<pixelSizeArray.length; fields++) {
-					userInputs.addNumericField(pixelSizeArray[fields], 0,0);
-				}
-				
+			//While we want to keep editing
+			while(editImage == true) {
+			
+				//Ask the user to choose between these choices
+				String [] choiceArray = {"Start from the beginning - remove all image edits","Remove ROIs", "Manually threshold the image", "Try an automated thresholding technique", "Smooth the image", "Despeckle the image" };
+						
+				NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Image Processing");
+				userInputs.addChoice("Watchu wanna do 'bout it?", choiceArray, "Start from the beginning - remove all ROI clearances and thresholding");
 				userInputs.showDialog();
-	
-				//Get pixel sizes
-				for(choices=0; choices<pixelSizeArray.length; choices++) {
-					pixelSizeChoices.add(userInputs.getNextNumber());
-				}
-	
-				//Get the smoothing method and whether to despeckle before, after, or not
-				int smoothingMethod = userInputs.getNextChoiceIndex();
-				int despeckleMethod = userInputs.getNextChoiceIndex();
-	
-				//IJ.run(avg, ""+smoothingArray[smoothingMethod]+"...", "x="+xSmooth+" y="+ySmooth+" z="+zSmooth+"");
-	
-				if(despeckleMethod==0) {
+			
+				int choice = userInputs.getNextChoiceIndex();
+		
+				//If the user wants to despeckle the image
+				if(choice ==5) {
+
+					//We backup the image, run the despeckle
+					backup = avg.duplicate();
 					IJ.run(avg, "Despeckle", "stack");
-					IJ.run(avg, ""+smoothingArray[smoothingMethod]+"...", "x="+pixelSizeChoices.get(0)+" y="+pixelSizeChoices.get(1)+" z="+pixelSizeChoices.get(2)+"");
-				} else if (despeckleMethod==1) {
-					IJ.run(avg, ""+smoothingArray[smoothingMethod]+"...", "x="+pixelSizeChoices.get(0)+" y="+pixelSizeChoices.get(1)+" z="+pixelSizeChoices.get(2)+"");
-					IJ.run(avg, "Despeckle", "stack");
-				}
-	
-				//Check user is happy with smoothing, if so then proceed and close the backup, else revert to backup
-				smoothFirstCheck = dialogUserApproval("Smoothing satisfactory?", "Happy with the smoothing?");
-	
-				if(smoothFirstCheck == true) {
-					backup.close();
-				} else {
-					avg = replaceWithBackup(avg, backup);
-				}
-	
-			//If the user chooses to try a different automated thresholding technique
-			} else if(choice == 3) {
-	
-				//Backup the input image and run the autoThreshTryAll function on the input
-				backup = avg.duplicate();
-				autoThreshFinal = autoThreshTryAll(avg);
-				String threshChoiceLoop = autoThreshFinal.getThreshChoice();
-				boolean goodThreshChoiceLoop = autoThreshFinal.getGoodThresh();
-	
-				//If the user is happy with the threhsolding, then run it
-				if(goodThreshChoiceLoop == false) {
-	
-					IJ.run(avg, "Auto Threshold", "method="+threshChoiceLoop+" white stack use_stack_histogram");
-	
-					//Check if the user is still happy
-					threshFirstCheck = dialogUserApproval("Threshold satisfactory?", "Happy with the threshold?");				
-	
-					//If so, then close the backup image and we exit this whole condition by setting goodThreshChoice to false
-					if(threshFirstCheck == true) {
-	
-						//Here we check the skeleton and edit it if the user wants to
-						skelCheckOutput = skeletonChecking(avg, backup, timesRun, maskImages);
-	
-						//Get the outputs from that function
-						skeletonFirstCheck = skelCheckOutput.get(0);
-						skelGood = skelCheckOutput.get(1);
-						timesRun = skelCheckOutput.get(2);
-	
-						//If user was happy with the skeleton on the first check, or after editing, then exit the editing condition
-						if(skelGood ==1 || skeletonFirstCheck == true) {
-							editImage = false;
-						} else if (skelGood ==0 || skeletonFirstCheck == false) {
-							avg = replaceWithBackup(avg, backup);
-						}
+		
+					backup.show();
+		
+					//Check user is happy with despeckling, if so then proceed and close the backup, else revert to backup
+					despeckleCheck = dialogUserApproval("Despeckling satisfactory?", "Happy with the despeckle?");
+			
+					if(despeckleCheck == true) {
+						backup.close();
 					} else {
 						avg = replaceWithBackup(avg, backup);
 					}
-				} else {
-					avg = replaceWithBackup(avg, backup);
-				}
-				
-			//If the user chooses the manually threhsold the image		
-			} else if(choice == 2) {
-	
-				//Create a backup
-				backup = avg.duplicate();
-	
-				//Run the manual threshlding function on the input
-				manualThresholding(avg);
-	
-				//Check if the user is happy
-				manualHappy = dialogUserApproval("Manual Thresholding", "Happy with the manual threshold?");
-	
-				//If happy, set goodThreshChoice to true and exit condition
-				if(manualHappy == true) {
-	
-					//Here we check the skeleton and edit it if the user wants to
-					skelCheckOutput = skeletonChecking(avg, backup, timesRun, maskImages);
-	
-					//Get the outputs from that function
-					skeletonFirstCheck = skelCheckOutput.get(0);
-					skelGood = skelCheckOutput.get(1);
-					timesRun = skelCheckOutput.get(2);
-	
-					//If user was happy with the skeleton on the first check, or after editing, then exit the editing condition
-					if(skelGood ==1 || skeletonFirstCheck == true) {
-						editImage = false;
-					} else if (skelGood == 0 || skeletonFirstCheck == false) {
+
+				//If the user wants to smooth the image
+				} else if (choice == 4) {
+
+					//Backup the image
+					backup = avg.duplicate();
+
+					//Get the user's choices re: smoothing technique and size of smoothing in terms of pixel sizes
+					String [] smoothingArray = {"Gaussian Blur 3D", "Median 3D", "Mean 3D", "Minimum 3D", "Maximum 3D", "Variance 3D"};
+					String [] despeckleArray = {"Yes, before smoothing", "Yes, after smoothing", "No"};
+					String [] pixelSizeArray = {"Pixels to smooth in x: ", "Pixels to smooth in y: ", "Pixels to smooth in z: "};
+					ArrayList pixelSizeChoices = new ArrayList();
+						
+					NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Image Smoothing");
+					userInputs.addChoice("Which smoothing technique?", smoothingArray, "Gaussian Blur 3D");
+					userInputs.addChoice("Do you want to despeckle the image?", despeckleArray, "Yes, before smoothing");
+			
+					//Add pixel size fields
+					for(fields=0; fields<pixelSizeArray.length; fields++) {
+						userInputs.addNumericField(pixelSizeArray[fields], 0,0);
+					}
+						
+					userInputs.showDialog();
+			
+					//Get pixel sizes
+					for(choices=0; choices<pixelSizeArray.length; choices++) {
+						pixelSizeChoices.add(userInputs.getNextNumber());
+					}
+			
+					//Get the smoothing method and whether to despeckle before, after, or not
+					int smoothingMethod = userInputs.getNextChoiceIndex();
+					int despeckleMethod = userInputs.getNextChoiceIndex();
+
+					//If before, run it before smooothing, else run after smoothing
+					if(despeckleMethod==0) {
+						IJ.run(avg, "Despeckle", "stack");
+						IJ.run(avg, ""+smoothingArray[smoothingMethod]+"...", "x="+pixelSizeChoices.get(0)+" y="+pixelSizeChoices.get(1)+" z="+pixelSizeChoices.get(2)+"");
+					} else if (despeckleMethod==1) {
+						IJ.run(avg, ""+smoothingArray[smoothingMethod]+"...", "x="+pixelSizeChoices.get(0)+" y="+pixelSizeChoices.get(1)+" z="+pixelSizeChoices.get(2)+"");
+						IJ.run(avg, "Despeckle", "stack");
+					}
+			
+					//Check user is happy with smoothing, if so then proceed and close the backup, else revert to backup
+					smoothFirstCheck = dialogUserApproval("Smoothing satisfactory?", "Happy with the smoothing?");
+			
+					if(smoothFirstCheck == true) {
+						backup.close();
+					} else {
 						avg = replaceWithBackup(avg, backup);
 					}
-				} else {
-					avg = replaceWithBackup(avg, backup);
+			
+				//If the user chooses to try an automated thresholding technique
+				} else if(choice == 3) {
+			
+					//Backup the input image and run the autoThreshTryAll function on the input
+					backup = avg.duplicate();
+					autoThreshFinal = autoThreshTryAll(avg);
+			
+					//If the user is happy with the threhsolding, then run it (if autothreshfinal is a 0 then the user didn't like any of the outputs)
+					if(autoThreshFinal != 0) {
+
+						String [] threshNames = {"Default", "Huang", "Huang2", "Intermodes", "IsoData", "Li", "MaxEntropy", "Mean", "MinError(I)", "Minimum", "Moments", "Otsu", "Percentile", "RenyiEntropy", "Shanbhag", "Triangle"};
+						//Notice here we run it with a stack histogram, not what we do when trying them (seems to mess with how it gets displayed)
+						IJ.run(avg, "Auto Threshold", "method="+threshNames[(autoThreshFinal-1)]+" white stack use_stack_histogram");
+			
+						//Check if the user is happy
+						threshFirstCheck = dialogUserApproval("Threshold satisfactory?", "Happy with the threshold?");				
+			
+						//If so, we try out skeletonising the threhsolded image
+						if(threshFirstCheck == true) {
+
+							//Here we backup the thresholded image
+							thresholdedImage = avg.duplicate();
+			
+							//Here we check the skeleton and edit it if the user wants to
+							skelCheckOutput = skeletonChecking(avg, backup, timesRun, maskImages);
+			
+							//Get the outputs from that function - i.e. whether the user approved the skeleton at first go, and then whether the user approved or
+							//disapproved of the skeleton after editing 
+							//We also get how many times roiremoval was run during the skeleton editing (this will just be an update on the input timesRun value)
+							skeletonFirstCheck = skelCheckOutput.get(0);
+							skelGood = skelCheckOutput.get(1);
+							timesRun = skelCheckOutput.get(2);
+			
+							//If user was happy with the skeleton on the first check, or after editing, then exit the editing condition
+							if(skelGood ==1 || skeletonFirstCheck == true) {
+								editImage = false;
+							//Otherwise if the user wasn't happy on the first go or after editing, we replace the skeletonised image with a non-thresholded backup
+							//and close the thresholded image that was a backup, i.e., revert to pre-thresholded image
+							} else if (skelGood ==0 || skeletonFirstCheck == false) {
+								avg = replaceWithBackup(avg, backup);
+								thresholdedImage.close();
+							}
+						//If the user wasn't happy with thresholding the whole stack, replace the thresholded image with the backup
+						} else {
+							avg = replaceWithBackup(avg, backup);
+						}
+					//Similarly if during the autothrestryall function the user didn't approve anything, then we replace the avg image with the backup	
+					} else {
+						avg = replaceWithBackup(avg, backup);
+					}
+						
+				//If the user chooses the manually threhsold the image		
+				} else if(choice == 2) {
+			
+					//Create a backup
+					backup = avg.duplicate();
+			
+					//Run the manual threshlding function on the input where manualHappy is a boolean about whether the user was happy with the manual thresholding
+					manualHappy = manualThresholding(avg);
+			
+					//If the user is happy, we'll try the skeleton editing function
+					if(manualHappy == true) {
+
+						//Here we backup the thresholded image
+						thresholdedImage = avg.duplicate();
+			
+						//Here we check the skeleton and edit it if the user wants to
+						skelCheckOutput = skeletonChecking(avg, backup, timesRun, maskImages);
+			
+						//Get the outputs from that function - i.e. whether the user approved the skeleton at first go, and then whether the user approved or
+						//disapproved of the skeleton after editing 
+						//We also get how many times roiremoval was run during the skeleton editing (this will just be an update on the input timesRun value)
+						skeletonFirstCheck = skelCheckOutput.get(0);
+						skelGood = skelCheckOutput.get(1);
+						timesRun = skelCheckOutput.get(2);
+			
+						//If user was happy with the skeleton on the first check, or after editing, then exit the editing condition
+						if(skelGood ==1 || skeletonFirstCheck == true) {
+							editImage = false;
+						//Otherwise if the user wasn't happy on the first go or after editing, we replace the skeletonised image with a non-thresholded backup
+						//and close the thresholded image that was a backup, i.e., revert to pre-thresholded image
+						} else if (skelGood ==0 || skeletonFirstCheck == false) {
+							avg = replaceWithBackup(avg, backup);
+							thresholdedImage.close();
+						}
+					//If the user wasn't happy with manual thresholding initially, replace the thresholded image with the backup
+					} else {
+						avg = replaceWithBackup(avg, backup);
+					}
+					
+				//If the user chooses to remove more ROIs		
+				} else if(choice == 1) {
+			
+					//Create a backup
+					backup = avg.duplicate();
+						
+					//Run the roi removal function
+					roiMask = roiRemoval(avg, timesRun);
+			
+					//Check if the user is happy with the result
+					roiRemovalHappy = dialogUserApproval("ROI Removal", "Happy with the ROI removal?");
+			
+					//If they're happy, we close the backup and add the mask to our arrayList of masks and increase timesRun and hide the mask
+					if(roiRemovalHappy == true) {				
+						backup.close();
+						maskImages.add(roiMask);
+						timesRun++;
+						roiMask.hide();
+					//Otherwise we close the mask and replace the input with the backup
+					} else {
+						roiMask.close();
+						avg = replaceWithBackup(avg, backup);
+					}
+			
+				//If the user wants to start from scratch with the image
+				} else if(choice == 0) {	
+			
+					//Replace the input image with the babyfresh backup and create a new babyfresh backup
+					avg = replaceWithBackup(avg, babyFresh);
+					babyFresh=avg.duplicate();
 				}
+			
+			}
+
+			//After image editing we check if the user has run the roiRemoval function, and if they have then we have to calculate the volume they've removed
+			if(timesRun>0) {
 	
-			//If the user chooses to remove more ROIs		
-			} else if(choice == 1) {
-	
-				//Create a backup
-				backup = avg.duplicate();
+				//A string to store the list of masks to use when adding them together
+				StringBuilder imagesToUse  = new StringBuilder();
 				
-				//Run the roi removal function
-				roiRemoval(avg, true, timesRun);	
-	
-				//Create a variable for the mask that was output by the function
-				IJ.log("Mask " + Integer.toString((timesRun)));
-				tempSelect = WindowManager.getImage("Mask " + Integer.toString((timesRun)));
-				tempSelect.hide();
-	
-				//Check if the user is happy with the result
-				roiRemovalHappy = dialogUserApproval("ROI Removal", "Happy with the ROI removal?");
-	
-				//If they're happy, we close the backup and add the mask to our arrayList of masks and increase timesRun
-				if(roiRemovalHappy == true) {				
-					backup.close();
-					maskImages.add(tempSelect);
-					timesRun++;
-				//Otherwise we close the input and the mask and set the backup to the main image
-				} else {
+				//String to store the expression for the image expression parser plugin (i.e. adding the images together or subtracting etc., this plugin can do image calculation but for >2 images)
+				StringBuilder expressionToUse = new StringBuilder();
+			
+				//String to store the correct command i.e. a=[image1] b=[image2] for use with the plugin
+				String[] amendedAlphabetArray = new String[26];
+
+				//The plugin uses letters to differentiate images - hence we need these alphabet arrays
+				//The plugin also uses uppercase for the expression (i.e. adding or multiplying images) but lowercase for assigning to images
+			
+				//Character array to store all the upercase alphabet characters
+				char[] uppercaseAlpha = new char[26];
+				//And one to store the lowercase letters
+				char[] lowercaseAlpha = new char[26];
+			
+				//Populate the uppercaseAlpha array with uppercase letters and lowercase with lower -  fill the amendedAlphabetArray with the lowercase + =[
+				for(i = 0; i < 26; i++){
+				    uppercaseAlpha[i] = (char)(65 + i);
+				    lowercaseAlpha[i] = (char)(97 + i);
+				    amendedAlphabetArray[i] = lowercaseAlpha[i]+"=[";
+				}
+			
+				//Loop through the number of times we've run roiRemoval
+				for(roisRun = 0; roisRun <timesRun; roisRun++){
+					//Get the mask image from the arraylist and its title
+					tempSelect = maskImages.get(roisRun);
+					tempSelect.show();
+					currentImageName = tempSelect.getTitle();
+					
+					//Get the current amended letter associated with the current roisRun value
+					currentLetter = amendedAlphabetArray[roisRun];
+					
+					//Add a ] to the end of it and attach it to the mask name
+					stringToAdd=currentImageName+"] ";
+					wholeBit=currentLetter+stringToAdd;
+			
+					//Add this to the imagesToUse StringBuilder and build up a string of all these
+					imagesToUse.append(wholeBit);
+			
+					//If we aren't at the final roisRun value, put in the uppercase current letter with a +
+					if(roisRun!=(timesRun-1)){
+						expressionToUse.append(uppercaseAlpha[roisRun]+"+");
+					//Else just add the letter without the +	
+					} else {
+						expressionToUse.append(uppercaseAlpha[roisRun]);
+					}
+				}
+			
+				//Turn the StringBuilder values into strings
+				String imagesList = imagesToUse.toString();
+				String expression = expressionToUse.toString();
+			
+				//Print the strings to see them
+				IJ.log(imagesList);
+				IJ.log(expression);
+			
+				//Run the image expression parser using the built strings
+				IJ.run("Image Expression Parser (Macro)", "expression="+expression+" "+imagesList+"");
+		
+				//We get the output of the parser
+				parsedImageVirt = IJ.getImage();
+				//Then we duplicate it (so that the duplicate is no longer a virtual stack)
+				parsedImage=parsedImageVirt.duplicate();
+				//Then we close the original
+				parsedImageVirt.close();
+				//And show the duplicate
+				parsedImage.show();
+		
+				//We then loop through the number of times we've run the roiRemoval and close all the associated mask windows
+				for(roisRun = 0; roisRun <timesRun; roisRun++){
+					tempSelect = maskImages.get(roisRun);
 					tempSelect.close();
-					avg = replaceWithBackup(avg, backup);
 				}
-	
-			//If the user wants to start from scratch with the image
-			} else if(choice == 0) {	
-	
-				//Close the input image and set the backup as the main image so we go back to the menu with a fresh clean image
-				avg = replaceWithBackup(avg, babyFresh);
-				babyFresh=avg.duplicate();
-	
-			}
-	
-		}
+		
+				//We then invert and 8-bit the parsed image output (the sum of all mask windows)
+				IJ.run(parsedImage, "Invert", "stack");
+				IJ.run(parsedImage, "8-bit", "");
+		
+				//Calibrate the parsed image
+				IJ.run(parsedImage, "Properties...", "channels="+avgChannels+" slices="+avgSlices+" frames="+avgFrames+" unit=µm pixel_width="+xPxlSize+" pixel_height="+yPxlSize+" voxel_depth="+zPxlSize+"");
 
-		//Set the volume removed to nothing
-		double volumeRemoved=0;	
-		
-		//Now we check if the user has run the roiRemoval function, and if they have then we have to calculate the volume they've removed
-		if(timesRun>0) {
-	
-			//A string to store the list of masks to use when adding them together
-			StringBuilder imagesToUse  = new StringBuilder();
+				//Calculate the volume occupied by a single voxel using calibrated values of width and depth
+				voxelVolume=(xPxlSize*yPxlSize*zPxlSize);
+
+				//Threshold the parsedImage (if we're combining multiple images we need to re-binarise the image)
+				IJ.setThreshold(parsedImage, 0.00, 254.0, "Black & White");
+				
+				//Calculate the volume removed by roi removal
+				volumeRemoved = calculateVolRemoved(parsedImage, voxelVolume);
 			
-			//String to store the expression for the image expression parser plugin (i.e. adding the images together or subtracting etc., this plugin can do image calculation but for >2 images)
-			StringBuilder expressionToUse = new StringBuilder();
+				IJ.log("Calculated space removed by ROIs");	
+				IJ.log("Pixel width: " + IJ.d2s(xPxlSize, 9) + " Pixel depth: " + IJ.d2s(zPxlSize,9) + " Voxel Volume: " + IJ.d2s(voxelVolume,9));
+				IJ.log("Volume removed: " + IJ.d2s(volumeRemoved, 9) + "um^3");
 		
-			//String to store the correct command i.e. a=[image1] b=[image2] for use with the plugin
-			String[] amendedAlphabetArray = new String[26];
-		
-			//Character array to store all the upercase alphabet characters
-			char[] uppercaseAlpha = new char[26];
-			//And one to store the lowercase letters
-			char[] lowercaseAlpha = new char[26];
-		
-			//Populate the uppercaseAlpha array with uppercase letters
-			for(i = 0; i < 26; i++){
-			    uppercaseAlpha[i] = (char)(65 + i);
-			}
-		
-			//Same for lowercase - except fill the amendedAlphabetArray with the lowercase + =[
-			for(i = 0; i < 26; i++){
-				lowercaseAlpha[i] = (char)(97 + i);
-				amendedAlphabetArray[i] = lowercaseAlpha[i]+"=[";
-			}
-		
-			//Loop through the number of times we've run roiRemoval
-			for(roisRun = 0; roisRun <timesRun; roisRun++){
-				IJ.log("Looking for: Mask " + Integer.toString(roisRun));
-				tempSelect = maskImages.get(roisRun);
-				tempSelect.show();
-				currentImageName = tempSelect.getTitle();
+				//Save changes to the parsed image, and close it
+				parsedImage.changes = true;
+				IJ.saveAsTiff(parsedImage, parentDir+"/masksRemoved.tif");
+				parsedImage.close();
+	
+			//If no roi removals were done
+			} else {
 				
-				//Get the current amended letter associated with the current roisRun value
-				currentLetter = amendedAlphabetArray[roisRun];
-				
-				//Add a ] to the end of it
-				stringToAdd=currentImageName+"] ";
-				wholeBit=currentLetter+stringToAdd;
+				IJ.log("No space removed by ROIs");
+				IJ.log("Volume removed: " + IJ.d2s(volumeRemoved,9) + "um^3");
 		
-				//Add this to the imagesToUse StringBuilder and build up a string of all these
-				imagesToUse.append(wholeBit);
-		
-				//If we aren't at the final roisRun value, put in the uppercase current letter with a +
-				if(roisRun!=(timesRun-1)){
-					expressionToUse.append(uppercaseAlpha[roisRun]+"+");
-				//Else just add the letter without the +	
-				} else {
-					expressionToUse.append(uppercaseAlpha[roisRun]);
+			}
+
+			//Save our skeleton
+			avg.changes = true;
+			IJ.saveAsTiff(avg, parentDir+"/skeletonisedImage.tif");
+
+			//And save a thresholded image that the skeleton is derived from
+			thresholdedImage.changes = true;
+			IJ.saveAsTiff(thresholdedImage, parentDir+"/thresholdedImage.tif");
+
+		//If we've done thresholding but not a distance map - this is to open the right files and get the right info in this case for distance map
+		//creation and for skeleton coordinates
+		} else if (thresholdingDone == 1 && distanceMapDone == 0) { 
+
+			IJ.log("Thresholding done but not distance map");
+
+			//Look through the directory for the thresholded image and skeletonised image and open if they exist
+			for(File thresholdingCheck:parentFiles) {
+				if(thresholdingCheck.getAbsolutePath().toLowerCase().contains("thresholdedimage")) {
+					thresholdedImage=IJ.openImage(thresholdingCheck.getAbsolutePath());
+				} else if (thresholdingCheck.getAbsolutePath().toLowerCase().contains("skeletonisedimage")) {
+					avg = IJ.openImage(thresholdingCheck.getAbsolutePath());
+
+					//Get the dimensions of the calibrated skeletonised image
+					avgDimensions = avg.getDimensions();
+					avgWidth = avgDimensions[0];
+					avgHeight = avgDimensions[1];
+					avgChannels = avgDimensions[2];
+					avgSlices = avgDimensions[3];
+					avgFrames = avgDimensions[4];
+
+				//If we've removed masks, then we open the masksremoved imageand calculate the voxels cleared
+				} else if (thresholdingCheck.getAbsolutePath().toLowerCase().contains("masksremoved")) {
+					IJ.log("Getting voxels removed");
+
+					parsedImage = IJ.openImage(thresholdingCheck.getAbsolutePath());
+					
+					//Calculate the volume occupied by a single voxel using calibrated values of width and depth
+					voxelVolume=(xPxlSize*yPxlSize*zPxlSize);
+
+					//Calculate the volume removed by roi removal
+					volumeRemoved = calculateVolRemoved(parsedImage, voxelVolume);
+
 				}
 			}
-		
-			//Turn the StringBuilder values into strings
-			String imagesList = imagesToUse.toString();
-			String expression = expressionToUse.toString();
-		
-			//Print the strings to see them
-			IJ.log(imagesList);
-			IJ.log(expression);
-		
-			//Run the image expression parser using the built strings
-			IJ.run("Image Expression Parser (Macro)", "expression="+expression+" "+imagesList+"");
+
+		//Otherwise if we've done both a distance map and thresholding - here we get the info we need for skeleton 3d coords
+		} else if (thresholdingDone == 1 && distanceMapDone == 1 && skeletonDone == 0) {
+			
+			IJ.log("Thresholding done, distance map done, but not skeleton");
+
+			//We open our skeletonised image
+			for(File thresholdingCheck:parentFiles) {
+				if(thresholdingCheck.getAbsolutePath().toLowerCase().contains("skeletonisedimage")) {
+					IJ.log(thresholdingCheck.getAbsolutePath());
+					avg=IJ.openImage(thresholdingCheck.getAbsolutePath());
+
+					//Get its calibrated dimensions
+					avgDimensions = avg.getDimensions();
+					avgWidth = avgDimensions[0];
+					avgHeight = avgDimensions[1];
+					avgChannels = avgDimensions[2];
+					avgSlices = avgDimensions[3];
+					avgFrames = avgDimensions[4];
+
+				//If we've removed rois, calcubate the voxel volume removed
+				} else if (thresholdingCheck.getAbsolutePath().toLowerCase().contains("masksremoved")) {
+					
+					IJ.log("Calculating removed voxels");
+					
+					parsedImage = IJ.openImage(thresholdingCheck.getAbsolutePath());
+					
+					//Calculate the volume occupied by a single voxel using calibrated values of width and depth
+					voxelVolume=(xPxlSize*yPxlSize*zPxlSize);
+
+					//Calculate the volume removed by roi removal
+					volumeRemoved = calculateVolRemoved(parsedImage, voxelVolume);
+
+				}
+			}
+		}
+
+		//If we haven't done the distance map
+		if (distanceMapDone == 0) {
+
+			IJ.log("Distance map not done");
+
+			//Use the thresholded image to calculate a 3D euclidian distance map
+			thresholdedImage.show();
+			thresholdedTitle=thresholdedImage.getTitle();
+			tifIndex = thresholdedTitle.indexOf(".tif");
+			thresholdedTitleNoTif = thresholdedTitle.substring(0, tifIndex);
 	
-			//We get the output of the parser
-			parsedImageVirt = IJ.getImage();
-			//Then we duplicate it (so that the duplicate is no longer a virtual stack)
-			parsedImage=parsedImageVirt.duplicate();
-			//Then we close the original
-			parsedImageVirt.close();
-			//And show the duplicate
-			parsedImage.show();
-			//Then we get the name of the image
-			currentImageName = parsedImage.getTitle();
+			IJ.run("3D Distance Map", "map=EDT image="+thresholdedTitleNoTif+" mask=None threshold=1");
+			EDT = IJ.getImage();
+
+			//Save the distance map and close it
+			IJ.saveAsTiff(EDT, parentDir+"/Dmap.tif");
+			EDT.close();
+
+			//Close the thresholded image
+			thresholdedImage.changes = false;
+			thresholdedImage.close();
+
+		}
+
+		//If the skeleton coordinates haven't been extracted
+		if(skeletonDone == 0) {
+
+			IJ.log("Skeleton not done");
+			
+			//Following analyze skeleton code taken from: https://forum.image.sc/t/3d-image-analyzeskeleton/5404 and edited
+
+			avg.show();
+			
+			//Make sure there are no selections on the skeleton image
+			IJ.run(avg, "Select None", "");
 	
-			//We then loop through the number of times we've run the roiRemoval and close all the associated mask windows
-			for(roisRun = 0; roisRun <timesRun; roisRun++){
-				tempSelect = maskImages.get(roisRun);
-				tempSelect.close();
+			// analyze skeleton
+			skel = new AnalyzeSkeleton_();
+			skel.setup("", avg);
+			skelResult = skel.run(AnalyzeSkeleton_.NONE, false, false, null, true, false);
+	
+			// get graphs (one per skeleton in the image)
+			graph = skelResult.getGraph();
+	
+			//Create arraylists to store the x, y, and z coordinates of each voxel, as well as their associated skeleton number, branch number, and coord number
+			//also arraylists to store the calibrated values of the coordinates
+			ArrayList xCoords = new ArrayList();
+			ArrayList yCoords = new ArrayList();
+			ArrayList zCoords = new ArrayList();
+	
+			ArrayList xCoordsCal = new ArrayList();
+			ArrayList yCoordsCal = new ArrayList();
+			ArrayList zCoordsCal = new ArrayList();
+			
+			ArrayList skeletonNumber = new ArrayList();
+			ArrayList branchNumber = new ArrayList();
+			ArrayList coordinateNumber = new ArrayList();
+	
+			// go through all skeletons
+			for(i=0 ; i < graph.length; i++ ) {
+			    listEdges = graph[i].getEdges(); 
+			    // go through all branches - j counts how many branches for each skeleton, our results table won't show data for skeletons without branches or coords
+			    j=0;
+			    for( Edge e : listEdges ) {
+			    	//Get the coords of the starting point
+			    	p1 = e.getV1().getPoints().get( 0 );
+			    	//no points is how many coordinates we've collected in this branch
+			    	noPoints = 0;
+			  		xCoords.add(p1.x);
+			  		xCoordsCal.add(p1.x*xPxlSize);
+			  		yCoords.add(p1.y);
+			  		yCoordsCal.add(p1.y*yPxlSize);
+			  		zCoords.add(p1.z);
+			  		zCoordsCal.add(p1.z*zPxlSize);
+			  		skeletonNumber.add(i+1);
+			  		coordinateNumber.add(noPoints);
+			  		branchNumber.add(j);
+			  		//Increase how many coords we've collected in this branch
+			  		noPoints++;		
+			  		//Get coords for all points between starting and end coords
+			        for( Point p : e.getSlabs() ){	
+			  			xCoords.add(p.x);
+				  		xCoordsCal.add(p.x*xPxlSize);
+				  		yCoords.add(p.y);
+				  		yCoordsCal.add(p.y*yPxlSize);
+				  		zCoords.add(p.z);
+				  		zCoordsCal.add(p.z*zPxlSize);
+				  		skeletonNumber.add(i+1);
+				  		coordinateNumber.add(noPoints);
+				  		branchNumber.add(j);
+				  		//Increase no coords each time
+			  			noPoints++;
+			  		}
+			  		//Get final coord points
+			        p2 = e.getV2().getPoints().get( 0 );
+			  		xCoords.add(p2.x);
+			  		xCoordsCal.add(p2.x*xPxlSize);
+			  		yCoords.add(p2.y);
+			  		yCoordsCal.add(p2.y*yPxlSize);
+			  		zCoords.add(p2.z);
+			  		zCoordsCal.add(p2.z*zPxlSize);
+			  		skeletonNumber.add(i+1);
+			  		coordinateNumber.add(noPoints);
+			  		branchNumber.add(j);
+			  		//Increase the branch number as we've finished collecting coords for this branch
+			     	j++;  
+			    }
 			}
 	
-			//We then invert and 8-bit the parsed image output (the sum of all mask windows
-			IJ.run(parsedImage, "Invert", "stack");
-			IJ.run(parsedImage, "8-bit", "");
+			//Create a new results table
+			rt = new ResultsTable();
+
+			//Calculate the volume of the skeleton image
+			avgVolume = avgWidth*avgHeight*avgSlices*xPxlSize*yPxlSize*zPxlSize;
 	
-			//Get the pixel sizes and unit of calibration and number of slices of the avg image
-			totalSlices=avg.getNSlices();
-	
-			//Calibrate the parsed image
-			IJ.run(parsedImage, "Properties...", "channels=1 slices="+totalSlices+" frames=1 unit="+unit+" pixel_width="+pxlWidth+" pixel_height="+pxlWidth+" voxel_depth="+pxlDepth+"");
+			//Looping through the number of coords we've collected, convert values to doubles to put in results table
+			for(i=0; i<xCoords.size(); i++) {
 				
-			//Run the voxel counter
-			IJ.run(parsedImage, "Voxel Counter", "");
-			//Get out the number of voxels counted as a double array, voxelCount
-			ResultsTable rt = ResultsTable.getResultsTable();
-			voxelCount = rt.getColumnAsDoubles(0);
+				double xDbl = (double) xCoords.get(i);
+				double yDbl = (double) yCoords.get(i);
+				double zDbl = (double) zCoords.get(i);
+	
+				double xDblCal = (double) xCoordsCal.get(i);
+				double yDblCal = (double) yCoordsCal.get(i);
+				double zDblCal = (double) zCoordsCal.get(i);
 			
-			//Loop through all the values in voxelCount and tally up how many total voxels have been cleared
-			total = 0;
-			for(voxelTotalVar=0; voxelTotalVar<totalSlices; voxelTotalVar++) {
-				total = total + voxelCount[voxelTotalVar];
+				double skelNo = (double) skeletonNumber.get(i);
+				double branchNo = (double) branchNumber.get(i);
+				double coordNo = (double) coordinateNumber.get(i);
+	
+				//Increase the counter of the table each iteration so we add to a new row and add the double values to their respective columns
+				rt.incrementCounter();
+
+				//If we've just started making the table, we put in the volume removed during roiremoval (if any), the volume of the whole image,
+				//and the difference between them
+				if(i==0) {
+					rt.addValue("Volume of Image Removed", volumeRemoved);
+					rt.addValue("Volume of the whole image", avgVolume);
+					rt.addValue("Volume Analysed", (avgVolume-volumeRemoved));
+				}
+				
+				rt.addValue("xCoords", xDbl);
+				rt.addValue("yCoords", yDbl);
+				rt.addValue("zCoords", zDbl);
+	
+				rt.addValue("xCoordsCal", xDblCal);
+				rt.addValue("yCoordsCal", yDblCal);
+				rt.addValue("zCoordsCal", zDblCal);
+				
+				rt.addValue("Skeleton Number", skelNo);
+				rt.addValue("Branch Number", branchNo);
+				rt.addValue("Coordinate Number", coordNo);
 			}
-			
-			IJ.log("Total voxels: " + IJ.d2s(total, 3));
-			
-			//Calculate the volume occupied by a single voxel using calibrated values of width and depth
-			voxelVolume=(pxlWidth*pxlWidth*pxlDepth);
-			
-			//Calculate the total volume of the image cleared by the rois
-			volumeRemoved=voxelVolume*total;
-		
-			IJ.log("Calculated space removed by ROIs");	
-			IJ.log("Pixel width: " + IJ.d2s(pxlWidth, 9) + " Pixel depth: " + IJ.d2s(pxlDepth,9) + " Voxel Volume: " + IJ.d2s(voxelVolume,9));
-			IJ.log("Volume removed: " + IJ.d2s(volumeRemoved, 9) + "um^3");
+
+			//Close the skeleton
+			avg.changes = false;
+			avg.close();
+
+			//Save the results table
+			rt.save(parentDir+"/3Dcoords.xls");
 	
-			//Don't save changes to the parsed image, and close it
-			parsedImage.changes = false;
-			parsedImage.close();
-	
-		//If no roi removals were done
-		} else {
-		
-			IJ.log("No space removed by ROIs");
-			IJ.log("Volume removed: " + IJ.d2s(volumeRemoved,9) + "um^3");
-		
 		}
-
-		System.exit();	
-		//IJ.run(avgNameSmooth, "Analyze Skeleton (2D/3D)", "prune=[lowest intensity voxel] show display original_image="+dupName+"");
-		IJ.run(avg, "Analyze Skeleton (2D/3D)", "prune=[shortest branch] show display");
 		
-		//test.close();
-
-		tifIndex = dupName.indexOf(".tif");
-		String skeletonName = dupName.substring(0, tifIndex) + "-labeled-skeletons";
-		skelWindow = WindowManager.getImage(skeletonName);
-		//skelWindow.close();
-
-		//String [] test = WindowManager.getImageTitles();
-		//System.out.println(skeletonName);
-		//System.out.println(test[0]);
-		//System.out.println(test[1]);
-		//System.out.println(test[2]);
-		//System.out.println(test[3]);
-		//System.out.println(test[4]);
-		
-		System.exit();	
-		}
-
+		IJ.log("Image processed");
+	}
 }
