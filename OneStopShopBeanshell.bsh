@@ -10,12 +10,17 @@
 //Voxel Counter and MultiStackReg
 
 import ij.IJ; //Import this so that we can use imageJ to open the image
-import ij.gui.GenericDialog; //Import so we can create dialog boxes
-import ij.gui.WaitForUserDialog; //Import to allow us to wait for user input
+import ij.gui.GenericDialog;
+ //Import so we can create dialog boxes
+import ij.gui.WaitForUserDialog;
+ //Import to allow us to wait for user input
 import ij.gui.NonBlockingGenericDialog; //Import to allow us to create non blocking dialogs
-import ij.ImagePlus; //Import to allow us to create or alter images
-import ij.WindowManager; //Import to allow us to manager windows
-import ij.measure; //Import so we can measure things
+import ij.ImagePlus;
+ //Import to allow us to create or alter images
+import ij.WindowManager;
+ //Import to allow us to manager windows
+import ij.measure;
+ //Import so we can measure things
 import ij.measure.Calibration; //Import so we can access and set calibration values
 import ij.measure.ResultsTable; //Import so we can access the results table
 import ij.plugin.Duplicator; //Import so we can create substacks using the duplicator
@@ -45,7 +50,7 @@ public static listFilesAndFilesSubDirectories(String directoryName, String subst
 		if (file.isFile() && file.getAbsolutePath().toLowerCase().contains(substring.toLowerCase())) {
 			//We store the full path in the output ArrayList;
 			fileLocations.add(file.getAbsoluteFile());
-			IJ.log(file.getAbsolutePath());
+			//IJ.log(file.getAbsolutePath());
 		//If the file we're checking is a directory, then we run the whole thing on that directory
 		} else if (file.isDirectory()) {
 			File[] outputArray = listFilesAndFilesSubDirectories(file.getAbsolutePath(), substring); 
@@ -460,22 +465,18 @@ userInput.showDialog();
 String toFind = userInput.getStringFields().get(0).getText().toLowerCase();
 
 //Get channel chosen by the user
-int skelEdit = userInput.getNextChoiceIndex();
+int channelChoice = userInput.getNextChoiceIndex();
 
 //Find files in the chosen directory that contain our string toFind
 File[] output = listFilesAndFilesSubDirectories(dir, toFind);
 
 int length = output.length;
-IJ.log(Integer.toString(length));
+IJ.log("Number of matching files found: " + Integer.toString(length));
 
 //Here we go through our list of file locations and open ones that include ch_2 (i.e. they are TexasRed) if selected channel is 2
 for (File file:output) {
-
-	IJ.log(file.getName());
 	
-	if(file.getAbsolutePath().contains(channels[skelEdit])) {
-		
-		IJ.log("Contains " + channels[skelEdit]);
+	if(file.getAbsolutePath().contains(channels[channelChoice])) {
 		
 		//Here we get the parent directory that our wideFOV ch2 image is in and find its associated ini file
 		File parentDirFile = file.getParentFile(); //File form to be used in making array of files from this directory
@@ -490,6 +491,8 @@ for (File file:output) {
 		distanceMapDone = 0;
 		skeletonDone = 0;
 
+		IJ.log("Analyzing image: " + file.getAbsolutePath());
+
 		//If we find any image containing the string thresholdedimage in our directory, set thresholdingdone to 1, otherwise all will be set to 0 as we need
 		//the thresholded image to complete any of the other steps
 		thresholdingDone = lookingForSomething(parentFiles, thresholdingDone, "thresholdedimage");
@@ -497,11 +500,13 @@ for (File file:output) {
 		//If the thresholded image exists, we look for a dmap file, and if we find it, set distanceMapDone to 1, but otherwise it and skeletondone will remain
 		//at 0 as to do the skeleton we will have had to already do the distance map
 		if(thresholdingDone == 1) {
+			IJ.log("Thresholding of image already done");
 			distanceMapDone = lookingForSomething(parentFiles, distanceMapDone, "dmap");
 		}
 
 		//Finally, if the distance map was done, we look for the skeleton coordinates, and if they exist, set skeleton done to 1
 		if(distanceMapDone == 1) {
+			IJ.log("Distance map of image already created");
 			skeletonDone = lookingForSomething(parentFiles, skeletonDone, "3dcoords");
 		}
 	
@@ -518,6 +523,10 @@ for (File file:output) {
 			//We loop through the files in the parent directory and if any of them are an ini file
 			for(File iniCheck:parentFiles) {
 				if(iniCheck.getAbsolutePath().toLowerCase().contains("ini")) {
+					
+					IJ.log("Getting calibration values from ini file");
+					IJ.log("Ini file: " + iniCheck.getAbsolutePath());
+					
 					//We open the ini file as a string and retrieve the indices of the x, y, and z pixel sizes, as well as the number of frames per plane
 					//in addition we find the indices of the info that follows from those we're interested in so we can use them to cut substrings
 					iniText = ij.IJ.openAsString(iniCheck.getAbsolutePath());
@@ -553,6 +562,8 @@ for (File file:output) {
 				
 				}
 			}
+		} else {
+			IJ.log("Skeleton of image already created");
 		}
 
 		//Here we declare some variables again, because we need them in multiple scopes - these are for the frame averaged image, the thresholded image, 
@@ -582,10 +593,14 @@ for (File file:output) {
 			//We open the image and get it's name
 			imp=IJ.openImage(file.getAbsolutePath());
 			String name = imp.getTitle();
+
+			IJ.log("Registering image");
 		
 			//Here we register the open image using the translation technique
 			IJ.run(imp, "MultiStackReg", ""+name+" action_1=Align file_1=[] stack_2=None action_2=Ignore file_2=[] transformation=Translation");
 
+			IJ.log("Group Z Projecting image");
+			
 			//We show the image before group Z projecting it and then closing it
 			imp.show();
 			IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+FperZ+"");
@@ -594,7 +609,9 @@ for (File file:output) {
 			//Here we get the averaged image and set it as avg and retrieve the image with the avg name
 			String avgName = "AVG_"+name;
 			avg = WindowManager.getImage(avgName);
-				
+
+			IJ.log("Converting to 8-bit");
+		
 			//Turn avg into an 8 bit image
 			IJ.run(avg, "8-bit", "");
 
@@ -609,6 +626,8 @@ for (File file:output) {
 			//Calculate the volume of the average image
 			avgVolume = avgWidth*avgHeight*avgSlices*xPxlSize*yPxlSize*zPxlSize;
 
+			IJ.log("Calibrating image with ini values");
+			
 			//Calibrate the average image according to the values taken from the ini file
 			IJ.run(avg, "Properties...", "channels="+avgChannels+" slices="+avgSlices+" frames="+avgFrames+" unit=µm pixel_width="+xPxlSize+" pixel_height="+yPxlSize+" voxel_depth="+zPxlSize+"");
 
@@ -626,6 +645,10 @@ for (File file:output) {
 	
 			//While we want to keep editing
 			while(editImage == true) {
+
+				if(IJ.escapePressed() == true) {
+					System.exit();
+				}
 			
 				//Ask the user to choose between these choices
 				String [] choiceArray = {"Start from the beginning - remove all image edits","Remove ROIs", "Manually threshold the image", "Try an automated thresholding technique", "Smooth the image", "Despeckle the image" };
@@ -831,6 +854,8 @@ for (File file:output) {
 			//After image editing we check if the user has run the roiRemoval function, and if they have then we have to calculate the volume they've removed
 			if(timesRun>0) {
 	
+				IJ.log("Calculating total volume removed during ROI removal");
+				
 				//A string to store the list of masks to use when adding them together
 				StringBuilder imagesToUse  = new StringBuilder();
 				
@@ -886,8 +911,8 @@ for (File file:output) {
 				String expression = expressionToUse.toString();
 			
 				//Print the strings to see them
-				IJ.log(imagesList);
-				IJ.log(expression);
+				//IJ.log(imagesList);
+				//IJ.log(expression);
 			
 				//Run the image expression parser using the built strings
 				IJ.run("Image Expression Parser (Macro)", "expression="+expression+" "+imagesList+"");
@@ -923,9 +948,12 @@ for (File file:output) {
 				//Calculate the volume removed by roi removal
 				volumeRemoved = calculateVolRemoved(parsedImage, voxelVolume);
 			
-				IJ.log("Calculated space removed by ROIs");	
-				IJ.log("Pixel width: " + IJ.d2s(xPxlSize, 9) + " Pixel depth: " + IJ.d2s(zPxlSize,9) + " Voxel Volume: " + IJ.d2s(voxelVolume,9));
+				//IJ.log("Calculated space removed by ROIs");	
+				//IJ.log("Pixel width: " + IJ.d2s(xPxlSize, 9) + " Pixel depth: " + IJ.d2s(zPxlSize,9) + " Voxel Volume: " + IJ.d2s(voxelVolume,9));
 				IJ.log("Volume removed: " + IJ.d2s(volumeRemoved, 9) + "um^3");
+
+				IJ.log("Saving image of removed areas to parent directory");
+				IJ.log("Parent directory: " + parentDir);
 		
 				//Save changes to the parsed image, and close it
 				parsedImage.changes = true;
@@ -936,14 +964,20 @@ for (File file:output) {
 			} else {
 				
 				IJ.log("No space removed by ROIs");
-				IJ.log("Volume removed: " + IJ.d2s(volumeRemoved,9) + "um^3");
+				//IJ.log("Volume removed: " + IJ.d2s(volumeRemoved,9) + "um^3");
 		
 			}
 
+			IJ.log("Saving skeleton to parent directory");
+			IJ.log("Parent directory: " + parentDir);
+		
 			//Save our skeleton
 			avg.changes = true;
 			IJ.saveAsTiff(avg, parentDir+"/skeletonisedImage.tif");
-
+			
+			IJ.log("Saving thresholded image to parent directory");
+			IJ.log("Parent directory: " + parentDir);
+			
 			//And save a thresholded image that the skeleton is derived from
 			thresholdedImage.changes = true;
 			IJ.saveAsTiff(thresholdedImage, parentDir+"/thresholdedImage.tif");
@@ -953,6 +987,7 @@ for (File file:output) {
 		} else if (thresholdingDone == 1 && distanceMapDone == 0) { 
 
 			IJ.log("Thresholding done but not distance map");
+			IJ.log("Retrieving masks of ROIs removed");
 
 			//Look through the directory for the thresholded image and skeletonised image and open if they exist
 			for(File thresholdingCheck:parentFiles) {
@@ -971,7 +1006,7 @@ for (File file:output) {
 
 				//If we've removed masks, then we open the masksremoved imageand calculate the voxels cleared
 				} else if (thresholdingCheck.getAbsolutePath().toLowerCase().contains("masksremoved")) {
-					IJ.log("Getting voxels removed");
+					//IJ.log("Getting voxels removed");
 
 					parsedImage = IJ.openImage(thresholdingCheck.getAbsolutePath());
 					
@@ -987,7 +1022,7 @@ for (File file:output) {
 		//Otherwise if we've done both a distance map and thresholding - here we get the info we need for skeleton 3d coords
 		} else if (thresholdingDone == 1 && distanceMapDone == 1 && skeletonDone == 0) {
 			
-			IJ.log("Thresholding done, distance map done, but not skeleton");
+			IJ.log("Thresholding done, distance map done, but skeleton not analysed");
 
 			//We open our skeletonised image
 			for(File thresholdingCheck:parentFiles) {
@@ -1024,6 +1059,7 @@ for (File file:output) {
 		if (distanceMapDone == 0) {
 
 			IJ.log("Distance map not done");
+			IJ.log("Calculating distance map");
 
 			//Use the thresholded image to calculate a 3D euclidian distance map
 			thresholdedImage.show();
@@ -1033,6 +1069,9 @@ for (File file:output) {
 	
 			IJ.run("3D Distance Map", "map=EDT image="+thresholdedTitleNoTif+" mask=None threshold=1");
 			EDT = IJ.getImage();
+
+			IJ.log("Saving distance map in parent directory");
+			IJ.log("Parent direction: " + parentDir);
 
 			//Save the distance map and close it
 			IJ.saveAsTiff(EDT, parentDir+"/Dmap.tif");
@@ -1048,6 +1087,7 @@ for (File file:output) {
 		if(skeletonDone == 0) {
 
 			IJ.log("Skeleton not done");
+			IJ.log("Analysing skeleton");
 			
 			//Following analyze skeleton code taken from: https://forum.image.sc/t/3d-image-analyzeskeleton/5404 and edited
 
@@ -1177,6 +1217,9 @@ for (File file:output) {
 			//Close the skeleton
 			avg.changes = false;
 			avg.close();
+
+			IJ.log("Saving 3D coordinates of skeleton in parent directory");
+			IJ.log("Parent directory: " + parentDir);
 
 			//Save the results table
 			rt.save(parentDir+"/3Dcoords.xls");
