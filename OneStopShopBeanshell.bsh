@@ -48,12 +48,16 @@ public static listFilesAndFilesSubDirectories(String directoryName, String subst
 			IJ.log(file.getAbsolutePath());
 		//If the file we're checking is a directory, then we run the whole thing on that directory
 		} else if (file.isDirectory()) {
-			listFilesAndFilesSubDirectories(file.getAbsolutePath(), substring);           
+			File[] outputArray = listFilesAndFilesSubDirectories(file.getAbsolutePath(), substring); 
+			for(i=0; i<outputArray.length; i++) {
+				fileLocations.add(outputArray[i]);	
+			}
 		}
 	}
 
 	//Here we convert out ArrayList to a file array and return it
 	File[] arrayForm = fileLocations.toArray(new File[0]);
+	
 	return arrayForm;
 }
 
@@ -459,11 +463,19 @@ String toFind = userInput.getStringFields().get(0).getText().toLowerCase();
 int skelEdit = userInput.getNextChoiceIndex();
 
 //Find files in the chosen directory that contain our string toFind
-File [] output = listFilesAndFilesSubDirectories(dir, toFind);
+File[] output = listFilesAndFilesSubDirectories(dir, toFind);
+
+int length = output.length;
+IJ.log(Integer.toString(length));
 
 //Here we go through our list of file locations and open ones that include ch_2 (i.e. they are TexasRed) if selected channel is 2
 for (File file:output) {
+
+	IJ.log(file.getName());
+	
 	if(file.getAbsolutePath().contains(channels[skelEdit])) {
+		
+		IJ.log("Contains " + channels[skelEdit]);
 		
 		//Here we get the parent directory that our wideFOV ch2 image is in and find its associated ini file
 		File parentDirFile = file.getParentFile(); //File form to be used in making array of files from this directory
