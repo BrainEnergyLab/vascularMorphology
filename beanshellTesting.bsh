@@ -268,8 +268,12 @@ int[] branchInfoIndices = {0,1,8};
 //[0] is skelId, [1] is branch length, [2] is euclidean distance, [3] is for storing the branch number that we calculate 
 
 //Loop through, getting the 3 columns from the table and storing them in our 2d double array
-for(i=0; i<3; i++) {
+for(i=0; i<4; i++) {
+	if(i<3) {
 	branchInfoColumns[i] = branchInfo.getColumnAsDoubles(branchInfoIndices[i]);
+	} else {
+		branchInfoColumns[i] = new double[branchInfoColumns[0].length];
+	}
 }
 
 //Create a double value that counts how many branches there are for each skeleton, cast as a double so we can put it into a results table, and 
@@ -283,7 +287,7 @@ for(skelIndex=0; skelIndex<branchInfoColumns[0].length; skelIndex++) {
 	if(skelIndex==0) {
 		branchInfoColumns[3][skelIndex] = currentNo;
 	} else {
-		if(skelID[skelIndex] == skelID[skelIndex-1]) {
+		if(branchInfoColumns[0][skelIndex] == branchInfoColumns[0][skelIndex-1]) {
 			currentNo = currentNo+1;
 		} else {
 			currentNo = 1;
@@ -316,7 +320,7 @@ for(i=1; i<imageSlices+1; i++) {
 			//Then we loop through the valueStore array and get out the x,y,z,skelNo,branchNo,and coordNo of that point and store it in newTable
 			for(k=0; k<3; k++) {
 				for(j=0; j<3; j++) {
-					newTable[j+(k*3)].add(valueStore[k][j][i0]));
+					newTable[(j+(k*3))].add(valueStore[k][j][i0]);
 				}
 				if(k<2) {
 					//Here we get out the x and y points and put them in the x and y arraylist array
