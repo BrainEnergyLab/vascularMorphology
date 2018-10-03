@@ -509,13 +509,6 @@ for (File file:output) {
 			IJ.log("Distance map of image already created");
 			skeletonDone = lookingForSomething(parentFiles, skeletonDone, "3dcoords");
 		}
-	
-		//Here we declare variables for our frames per z, and our pixels sizes, as these will be filled in by the code immediately after, but are needed
-		//beyond this section
-		int FperZ;
-		double xPxlSize;
-		double yPxlSize;
-		double zPxlSize;
 
 		//If the skeleton hasn't been analyzed (so if we haven't completely finished analysing the image)
 		if(skeletonDone == 0) {
@@ -530,35 +523,41 @@ for (File file:output) {
 					//We open the ini file as a string and retrieve the indices of the x, y, and z pixel sizes, as well as the number of frames per plane
 					//in addition we find the indices of the info that follows from those we're interested in so we can use them to cut substrings
 					iniText = ij.IJ.openAsString(iniCheck.getAbsolutePath());
-					
-					xPxlIndex = iniText.indexOf("x.pixel.sz = ");
-					yPxlIndex = iniText.indexOf("y.pixel.sz = "); //This immediately follows x pixel size
-					xVoltage = iniText.indexOf("x.voltage = "); //This follows y pixel size
-					
-					zSpacingIndex = iniText.indexOf("z.spacing = ");
-					nrPlanesIndex = iniText.indexOf("nr.of.planes"); //This follows z spacing (i.e. pixel depth)
-					
-					framesPerPlaneIndex = iniText.indexOf("frames.per.plane");
-					framesPerZCycle = iniText.indexOf("frames.per.z.cycle"); //This follows frames per plane
-		
-					//Here we cut the substrings into only numbers
-					xPxlSizeString = iniText.substring((xPxlIndex+13), yPxlIndex);				
-					yPxlSizeString = iniText.substring((yPxlIndex+13), xVoltage);
-					zSpacingString = iniText.substring((zSpacingIndex+12), nrPlanesIndex);
-					FperZString = iniText.substring((framesPerPlaneIndex+19), framesPerZCycle);
-		
-					//Here we convert the substrings into doubles
-					double xPxlSizeM = Double.valueOf(xPxlSizeString).doubleValue(); //in metres
-					xPxlSize = xPxlSizeM*(1e6); //in um
-					
-					double yPxlSizeM = Double.valueOf(yPxlSizeString).doubleValue(); //in metres
-					yPxlSize = yPxlSizeM*(1e6); //in um
-					
-					zPxlSize = Double.valueOf(zSpacingString).doubleValue(); // in um
-					double FperZDbl = Double.valueOf(FperZString).doubleValue();
 
+					String[] iniValueStrings = {"x.pixel.sz = ",
+												"y.pixel.sz = ",
+												"z.spacing = ",
+												"frames.per.plane = "};
+
+					int[] iniTextIndicesPreAdds = {13,13,12,15,19};
+					
+					iniTextLength = iniText.length();
+
+					for(i=0; i<iniValueStrings.length; i++) {
+						startPoint = iniText.indexOf(iniValueStrings[i]) + iniTextIndicesPreAdds[i];
+						for(i0=startPoint; i0<iniTextLength; i0++) {
+							if(iniText.substring(i0, i0+1).matches(" ")) {
+								newString = iniText.substring(startPoint, i0);
+								lastIndex = newString.lastIndexOf("0");
+								realString = newString.substring(0, lastIndex);
+								if(i<2) {
+									iniVariables[i] = Double.valueOf(realString).doubleValue() * (1e6);
+								} else {
+									iniVariables[i] = Double.valueOf(realString).doubleValue();
+								}
+								IJ.log(IJ.d2s(iniVariables[i], 9));
+								i0 = iniTextLength;
+							}
+						}
+					}
+
+					//Here we declare variables for our frames per z, and our pixels sizes, as these will be filled in by the code immediately after, but are needed
+					//beyond this section
 					//Here we convert our FperZ into an int, as no point in a double - it has to be an integer value
-					FperZ = (int) FperZDbl;
+					int FperZ = (int) = iniVariables[4];
+					double xPxlSize = iniVariables[0];
+					double yPxlSize = iniVariables[1];
+					double zPxlSize = iniVariables[2];
 				
 				}
 			}
@@ -625,6 +624,7 @@ for (File file:output) {
 
 			//Calculate the volume of the average image
 			avgVolume = avgWidth*avgHeight*avgSlices*xPxlSize*yPxlSize*zPxlSize;
+			
 
 			IJ.log("Calibrating image with ini values");
 			
@@ -1134,7 +1134,7 @@ for (File file:output) {
 			  		yCoordsCal.add(p1.y*yPxlSize);
 			  		zCoords.add(p1.z);
 			  		zCoordsCal.add(p1.z*zPxlSize);
-			  		skeletonNumber.add(i+1);
+			  		skeletonNumber.add(i);
 			  		coordinateNumber.add(noPoints);
 			  		branchNumber.add(j);
 			  		//Increase how many coords we've collected in this branch
@@ -1147,7 +1147,7 @@ for (File file:output) {
 				  		yCoordsCal.add(p.y*yPxlSize);
 				  		zCoords.add(p.z);
 				  		zCoordsCal.add(p.z*zPxlSize);
-				  		skeletonNumber.add(i+1);
+				  		skeletonNumber.add(i);
 				  		coordinateNumber.add(noPoints);
 				  		branchNumber.add(j);
 				  		//Increase no coords each time
@@ -1161,7 +1161,7 @@ for (File file:output) {
 			  		yCoordsCal.add(p2.y*yPxlSize);
 			  		zCoords.add(p2.z);
 			  		zCoordsCal.add(p2.z*zPxlSize);
-			  		skeletonNumber.add(i+1);
+			  		skeletonNumber.add(i);
 			  		coordinateNumber.add(noPoints);
 			  		branchNumber.add(j);
 			  		//Increase the branch number as we've finished collecting coords for this branch
@@ -1176,19 +1176,21 @@ for (File file:output) {
 			avgVolume = avgWidth*avgHeight*avgSlices*xPxlSize*yPxlSize*zPxlSize;
 	
 			//Looping through the number of coords we've collected, convert values to doubles to put in results table
+			//We are adding 1 unit to everything here as matlab indexes from 1 - so bare in mind that to get the correct calibrated coordinates as the end of it
+			//all, we need to remove 1 unit from them
 			for(i=0; i<xCoords.size(); i++) {
 				
-				double xDbl = (double) xCoords.get(i);
-				double yDbl = (double) yCoords.get(i);
-				double zDbl = (double) zCoords.get(i);
+				double xDbl = (double) xCoords.get(i)+1;
+				double yDbl = (double) yCoords.get(i)+1;
+				double zDbl = (double) zCoords.get(i)+1;
 	
-				double xDblCal = (double) xCoordsCal.get(i);
-				double yDblCal = (double) yCoordsCal.get(i);
-				double zDblCal = (double) zCoordsCal.get(i);
+				double xDblCal = (double) xCoordsCal.get(i)+(xPxlSize*1);
+				double yDblCal = (double) yCoordsCal.get(i)+(yPxlSize*1);
+				double zDblCal = (double) zCoordsCal.get(i)+(zPxlSize*1);
 			
-				double skelNo = (double) skeletonNumber.get(i);
-				double branchNo = (double) branchNumber.get(i);
-				double coordNo = (double) coordinateNumber.get(i);
+				double skelNo = (double) skeletonNumber.get(i)+1;
+				double branchNo = (double) branchNumber.get(i)+1;
+				double coordNo = (double) coordinateNumber.get(i)+1;
 	
 				//Increase the counter of the table each iteration so we add to a new row and add the double values to their respective columns
 				rt.incrementCounter();
@@ -1214,6 +1216,50 @@ for (File file:output) {
 				rt.addValue("Coordinate Number", coordNo);
 			}
 
+			IJ.run(avg, "Analyze Skeleton (2D/3D)", "prune=[shortest branch] show");
+			Window results = WindowManager.getWindow("Results");
+			results.dispose();
+			Window branchInfo = WindowManager.getWindow("Branch information");
+			IJ.renameResults("Branch information", "Results");
+			ResultsTable branchInfo = ResultsTable.getResultsTable();
+
+			skelID = branchInfo.getColumnAsDoubles(0);
+			branchLength = branchInfo.getColumnAsVariables("Branch length");
+			euclidianDistance = branchInfo.getColumnAsVariables("Euclidean distance");
+			branchInfo.dispose();
+			
+			double branchNo;
+
+			currentNo = 0;
+
+			branchNo = currentNo;
+
+			newBranchInfo = new ResultsTable();
+
+			newBranchInfo.incrementCounter();
+			newBranchInfo.addValue("Skeleton ID", skelID[0]);
+			newBranchInfo.addValue("Branch Number", branchNo);
+				
+			for(i=1; i<skelID.length; i++) {
+				newBranchInfo.incrementCounter();
+				currentID = skelID[i];
+				//currentIDString = skelID[i].getString();
+				prevID = skelID[i-1];
+				//prevIDString = skelID[i-1].getString();
+				if(currentID == prevID) {
+					currentNo++;
+				} else {
+					currentNo = 0;
+				}
+				branchNo = currentNo;
+				newBranchInfo.addValue("Branch Number", branchNo);
+				newBranchInfo.addValue("Skeleton ID", skelID[i]);
+				
+			}
+
+			newBranchInfo.setColumn("Branch length", branchLength);
+			newBranchInfo.setColumn("Euclidian distance", euclidianDistance);
+			
 			//Close the skeleton
 			avg.changes = false;
 			avg.close();
@@ -1223,6 +1269,7 @@ for (File file:output) {
 
 			//Save the results table
 			rt.save(parentDir+"/3Dcoords.xls");
+			newBranchInfo.save(parentDir+"/BranchInfo.xls");
 	
 		}
 		
