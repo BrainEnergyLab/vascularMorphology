@@ -14,6 +14,7 @@ import ij.plugin.PlugIn; //Import so we can save things without prompting to sav
 import ij.plugin.frame.RoiManager; //Import so we can work with the roi manager
 import ij.io.DirectoryChooser; //Import so the user can select a directory from a dialog box
 import ij.gui.PointRoi; //import so we can make point ROIs
+import ij.plugin.filter.Analyzer; //import so we can use the analyzer object
 
 //Import these so we can use analyze skeleton
 import sc.fiji.analyzeSkeleton.AnalyzeSkeleton_;
@@ -45,17 +46,26 @@ double volumeRemoved=100;
 //All this sorting code was adapted from http://techthinking.net/2010/04/how-to-sort-two-dimensional-data-based-on-multiple-parameters/
 class skeletonValues {
 
-	//define skelValues as a double array of size 10, where each index corresponds to the values outlined in the finalTableHeadings array
-	//String[] finalTableHeadings = {"Radius", "X Cal", "Y Cal", "Z Cal", "X Coord", "Y Coord", "Z Coord", "Skel No.", "Branch No.", "Coord No"};
-	double[] skelValues = new double[10];
+	double radius;
+	double xCal;
+	double yCal;
+	double zCal;
+	double xCoord;
+	double yCoord;
+	double zCoord;
+	double skelNo;
+	double branchNo;
+	double coordNo;
 
+	//[0] is x coord, [1] is y, [2] is z, [3] to [5] is calibrated, [6] to [8] is skel, branch and coord, [9] is radius
+	
 	//Here a skeletonValues object contains the skelValues double array, so each skelValues object has 10 data points, and we define how to get our the radius, skelNo, branchNo, and coordNo from this data
-	public skeletonValues(double[] skelValues) {
+	public skeletonValues(double xCoord, double yCoord, double zCoord, double xCal, double yCal, double zCal,  double skelNo, double branchNo, double coordNo, double radius) {
 		super();
-		this.radius = skelValues[0];
-		this.skelNo = skelValues[7];
-		this.branchNo = skelValues[8];
-		this.coordNo = skelValues[9];
+		this.radius = radius;
+		this.skelNo = skelNo;
+		this.branchNo = branchNo;
+		this.coordNo = coordNo;
 	}
 }
 
@@ -306,12 +316,22 @@ imageSlices = dmap.getNSlices();
 ArrayList[] newTable = new ArrayList[10];
 //[0] is x coord, [1] is y, [2] is z, [3] to [5] is calibrated, [6] to [8] is skel, branch and coord, [9] is radius
 
+for(i=0; i<newTable.length; i++) {
+	newTable[i] = new ArrayList();
+}
+
 //Loop through all the slices in our distance map, setting the image to that slice each time
 for(i=1; i<imageSlices+1; i++) {		
 	dmap.setSlice(i);
 
+	ArrayList[] xandyLists = new ArrayList[2];
+
+	for(i0=0; i0<xandyLists.length; i0++) {
+		xandyLists[i0] = new ArrayList();
+	}
+
 	//Loop through the arrays storing the coordinates of our skeleton
-	for(i0=0; i0<valueStore[0].length; i0++) {
+	for(i0=0; i0<valueStore[0][0].length; i0++) {
 		
 		//If the z coordinate of the row of our 3d coords data matches the slice we're on
 		int zIntCurr = (int) valueStore[0][2][i0] + 1;
@@ -320,6 +340,8 @@ for(i=1; i<imageSlices+1; i++) {
 			//Then we loop through the valueStore array and get out the x,y,z,skelNo,branchNo,and coordNo of that point and store it in newTable
 			for(k=0; k<3; k++) {
 				for(j=0; j<3; j++) {
+					//IJ.log(Integer.toString(k) + " " + Integer.toString(j) + " " + Integer.toString(i0) + " " + IJ.d2s(valueStore[0][0][0]));
+					//IJ.log(newTable[0].size());
 					newTable[(j+(k*3))].add(valueStore[k][j][i0]);
 				}
 				if(k<2) {
@@ -333,6 +355,7 @@ for(i=1; i<imageSlices+1; i++) {
 	//Here we convert our x and y arraylist array to 2d int array
 	int[][] xandyArrays = new int[2][];
 	for(i0=0; i0<2; i0++) {
+		xandyArrays[i0] = new int[xandyLists[i0].size()];
 		for(i1 = 0; i1<xandyLists[0].size(); i1++) {
 			xandyArrays[i0][i1] = (int) xandyLists[i0].get(i1);
 		}
@@ -351,8 +374,10 @@ for(i=1; i<imageSlices+1; i++) {
 	//Here we measure using the analyzer, then get out the mean results column from the results table, add this in its entirety to the newTable[9]
 	//arrayList, then make sure there are no more selections on dmap
 	meanMeasure.measure();
-	double[] radiusMeasurements = meanResults.getColumnAsDoubles(0);
-	Collections.addAll(newTable[9], radiusMeasurements);
+	double[] radiusMeasurements = meanResults.getColumnAsDoubles(1);
+	for(i0=0; i0<meanResults.size(); i0++) {
+		newTable[9].add(radiusMeasurements[i0]);
+	}
 	IJ.run(dmap, "Select None", "");
 	
 }
@@ -362,44 +387,27 @@ for(i=1; i<imageSlices+1; i++) {
 //onto our 3D coords data, rather than having to match the coordinates between arrays
 skeletonValues[] radiiTable = new skeletonValues[newTable[0].size()];
 
-//Here we create a double array to store each row of data that we want to then put into our skeletonValues array
-double[] skeletonValuesToUse = new double[10];
-
 //Here we fill our skeletonValuesToUse array with all the data in a single row (i.e. coordinates, calibrated coordinates, skel values, and radius)
 //before then assigning it to our radiiTable array
 for(i=0; i<newTable[0].size(); i++) {
+	//Here we create a double array to store each row of data that we want to then put into our skeletonValues array
+	double[] skeletonValuesToUse = new double[10];
 	for(i0=0; i0<10; i0++) {
 		skeletonValuesToUse[i0] = newTable[i0].get(i);
 	}
-	radiiTable[i] = new skeletonValues(skeletonValuesToUse);
+	radiiTable[i] = new skeletonValues(skeletonValuesToUse[0], skeletonValuesToUse[1], skeletonValuesToUse[2], skeletonValuesToUse[3], skeletonValuesToUse[4],
+									   skeletonValuesToUse[5], skeletonValuesToUse[6], skeletonValuesToUse[7], skeletonValuesToUse[8], skeletonValuesToUse[9]);
+
 }
 
 //Here we sort our radiiTable first by skeletonNo, then by branchNo, then by coordinateNo
 Arrays.sort(radiiTable, ORDER_BY_RULES);
 
 //Here we create a double array to store our now sorted radii, before we fill it with the radii values from our sorted radiiTable
-double[] sortedRadii = new double[newTable[0].size()];
+double[] sortedRadii = new double[newTable[9].size()];
 for(i=0; i<sortedRadii.length; i++) {
 	sortedRadii[i] = ((double) radiiTable[i].radius);
 }
-
-ArrayList [] rtTableGetting = new ArrayList[4];
-double[][] rtTableSetting = new double[3][];
-//[0] is totalRadii, [1] is skel, [2] is branch
-
-int[] rtTableIndices = {6,7,9};
-
-for(i=0; i<4; i++) {
-	rtTableGetting[i] = new ArrayList();
-	if(i<3) {
-	rtTableSetting[i] = rt.getColumnAsDoubles(rtTableIndices[i]);
-	}
-}
-
-//Create double arrays to store the previous coordinate values, and the current coordinate values so we can compare them
-double[] prevValues = new double[3];
-double[] currentValues = new double[3];
-//[0] is skel, [1] is branch, [2] is radii
 
 //This variable is to store the runningTotal of coordinate radii so that we can then divide it by the appropriate number
 //of coordinate to get the average radius for a particular branch
@@ -408,19 +416,42 @@ double runningTotal=0;
 //Create an arraylist to store the average radius for each branch and the number of coordinates, as well as a double array to store the values
 //to put into the arraylist
 ArrayList[] radiiandCoords = new ArrayList[2];
+for(i=0; i<radiiandCoords.length; i++) {
+	radiiandCoords[i] = new ArrayList();
+}
 double[] radiiandCoordsValues = new double[2];
 
-//Here we loop through the length of all our coordinates
-for(i=1; i<sortedRadii.length+1; i++) {
+//Create double arrays to store the previous coordinate values, and the current coordinate values so we can compare them
+double[] prevValues = new double[3];
+double[] currentValues = new double[3];
+//[0] is skel, [1] is branch, [2] is radii
 
+//Here we loop through the length of all our coordinates +1 time since we're comparing two rows to each other, so we need
+//an extra iteration to get the right number of radii
+for(i=0; i<sortedRadii.length+1; i++) {
+	
 	//Looping through 3 times so we can calculate the previous and current coordinates skel, branch, and radius
 	for(i0=0; i0<3; i0++) {
-		if(i0<2) {
-			prevValues[i0] = valueStore[2][i0][i-1];
-			currentValues[i0] = valueStore[2][i0][i];
-		} else {
-			prevValues[i0] = sortedRadii[i-1];
-			currentValues[i0] = sortedRadii[i];
+		
+		//If we're not on the first or last inidices
+		if(i>0 && i<sortedRadii.length) {
+			if(i0<2) {
+				prevValues[i0] = valueStore[2][i0][i-1];
+				currentValues[i0] = valueStore[2][i0][i];
+			} else {
+				prevValues[i0] = sortedRadii[i-1];
+				//IJ.log(Integer.toString(i));
+				currentValues[i0] = sortedRadii[i];
+			}
+		} else if (i==sortedRadii.length) {
+			if(i0<2) {
+				prevValues[i0] = valueStore[2][i0][i-2];
+				currentValues[i0] = valueStore[2][i0][i-1];
+				IJ.log(IJ.d2s(prevValues[i0],9) + " " + IJ.d2s(currentValues[i0], 9));
+			} else {
+				prevValues[i0] = sortedRadii[i-2];
+				currentValues[i0] = sortedRadii[i-1];
+			}
 		}
 	}
 
@@ -436,22 +467,51 @@ for(i=1; i<sortedRadii.length+1; i++) {
 
 		//Fill our double array with the values we want to store - average radius and the number of coordinates, then add these
 		//to our arraylist array
-		radiiandCoordsValues[0] = runningTotal/noCoords;
-		radiiandCoordsValues[1] = noCoords;
+		//IJ.log(IJ.d2s(prevValues[0],9) + " " + IJ.d2s(prevValues[1],9));
+		//IJ.log(IJ.d2s(runningTotal,9) + " " + IJ.d2s(runningTotal/noCoords,9) + " " + IJ.d2s(noCoords,9));
+		
+		radiiandCoordsValues[0] = (double) runningTotal/noCoords;
+		radiiandCoordsValues[1] = (double) noCoords;
+		
 		for(i0=0; i0<2; i0++) {
+			//IJ.log(IJ.d2s(radiiandCoordsValues[i0], 9));
 			radiiandCoords[i0].add(radiiandCoordsValues[i0]);
 		}
 
 		//Now that we're done with our current skel/branch combo, we reset running total to 0						
 		runningTotal = 0;
-	}				
+	} else {
+		if(i==sortedRadii.length) {
+			//We calculate the number of coordinates with that associated unique skel + branch combo the work out the average radii based on that
+			//and store it in our averageRadii arrayList
+			noCoords = valueStore[2][2][i-1];
+			IJ.log(IJ.d2s(noCoords,9));
+	
+			//Fill our double array with the values we want to store - average radius and the number of coordinates, then add these
+			//to our arraylist array
+			//IJ.log(IJ.d2s(prevValues[0],9) + " " + IJ.d2s(prevValues[1],9));
+			//IJ.log(IJ.d2s(runningTotal,9) + " " + IJ.d2s(runningTotal/noCoords,9) + " " + IJ.d2s(noCoords,9));
+			
+			radiiandCoordsValues[0] = (double) runningTotal/noCoords;
+			radiiandCoordsValues[1] = (double) noCoords;
+			
+			for(i0=0; i0<2; i0++) {
+				//IJ.log(IJ.d2s(radiiandCoordsValues[i0], 9));
+				radiiandCoords[i0].add(radiiandCoordsValues[i0]);
+			}	
+					
+		}
+	}
 }
+
+IJ.log(Integer.toString(branchInfoColumns[0].length) + " " + Integer.toString(radiiandCoords[0].size()));
 
 finalTable = new ResultsTable();
 for(i=0; i<branchInfoColumns[0].length; i++) {
 	finalTable.setValue("Skeleton Number", i, branchInfoColumns[0][i]);
 	finalTable.setValue("Branch Number", i, branchInfoColumns[3][i]);
 	finalTable.setValue("Number of Coordinates", i, radiiandCoords[1].get(i));
+	finalTable.setValue("Radius", i, radiiandCoords[0].get(i));
 	finalTable.setValue("Branch Length", i, branchInfoColumns[1][i]);
 	finalTable.setValue("Euclidean Distance", i, branchInfoColumns[2][i]); 
 }
