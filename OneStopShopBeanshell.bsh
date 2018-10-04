@@ -558,7 +558,7 @@ IJ.log("Number of matching files found: " + Integer.toString(length));
 
 //Here we go through our list of file locations and open ones that include ch_2 (i.e. they are TexasRed) if selected channel is 2
 for (File file:output) {
-	
+
 	if(file.getAbsolutePath().contains(channels[channelChoice])) {
 		
 		//Here we get the parent directory that our wideFOV ch2 image is in and find its associated ini file
@@ -613,6 +613,8 @@ for (File file:output) {
 												"frames.per.plane = "};
 
 					int[] iniTextIndicesPreAdds = {13,13,12,15,19};
+
+					ini[] iniVariables = new double [5];
 					
 					iniTextLength = iniText.length();
 
@@ -637,7 +639,7 @@ for (File file:output) {
 					//Here we declare variables for our frames per z, and our pixels sizes, as these will be filled in by the code immediately after, but are needed
 					//beyond this section
 					//Here we convert our FperZ into an int, as no point in a double - it has to be an integer value
-					int FperZ = (int) = iniVariables[4];
+					int FperZ = (int) iniVariables[4];
 					double xPxlSize = iniVariables[0];
 					double yPxlSize = iniVariables[1];
 					double zPxlSize = iniVariables[2];
