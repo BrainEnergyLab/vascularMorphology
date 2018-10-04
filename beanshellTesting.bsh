@@ -5,7 +5,6 @@ import ij.gui.NonBlockingGenericDialog; //Import to allow us to create non block
 import ij.ImagePlus; //Import to allow us to create or alter images
 import ij.WindowManager; //Import to allow us to manager windows
 import ij.measure; //Import so we can measure things
-import ij.macro.Variable; //Import so we can use the variable type
 import ij.measure.Calibration; //Import so we can access and set calibration values
 import ij.measure.ResultsTable; //Import so we can access the results table
 import ij.plugin.Duplicator; //Import so we can create substacks using the duplicator
@@ -13,8 +12,6 @@ import ij.process.ImageProcessor; //Import so we can invert the LUT after thresh
 import ij.plugin.PlugIn; //Import so we can save things without prompting to save changes
 import ij.plugin.frame.RoiManager; //Import so we can work with the roi manager
 import ij.io.DirectoryChooser; //Import so the user can select a directory from a dialog box
-import ij.gui.PointRoi; //import so we can make point ROIs
-import ij.plugin.filter.Analyzer; //import so we can use the analyzer object
 
 //Import these so we can use analyze skeleton
 import sc.fiji.analyzeSkeleton.AnalyzeSkeleton_;
