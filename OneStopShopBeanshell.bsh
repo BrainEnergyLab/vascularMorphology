@@ -556,6 +556,12 @@ File[] output = listFilesAndFilesSubDirectories(dir, toFind);
 int length = output.length;
 IJ.log("Number of matching files found: " + Integer.toString(length));
 
+int FperZ;
+double xPxlSize;
+double yPxlSize;
+double zPxlSize;
+
+
 //Here we go through our list of file locations and open ones that include ch_2 (i.e. they are TexasRed) if selected channel is 2
 for (File file:output) {
 
@@ -612,9 +618,9 @@ for (File file:output) {
 												"z.spacing = ",
 												"frames.per.plane = "};
 
-					int[] iniTextIndicesPreAdds = {13,13,12,15,19};
+					int[] iniTextIndicesPreAdds = {13,13,12,19};
 
-					ini[] iniVariables = new double [5];
+					double[] iniVariables = new double[5];
 					
 					iniTextLength = iniText.length();
 
@@ -687,6 +693,9 @@ for (File file:output) {
 			
 			//We show the image before group Z projecting it and then closing it
 			imp.show();
+
+			IJ.log(Integer.toString(FperZ));
+			
 			IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+FperZ+"");
 			imp.close();
 				
