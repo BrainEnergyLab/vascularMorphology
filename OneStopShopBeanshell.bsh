@@ -1,4 +1,4 @@
-//Written by Devin 10/9/18 updated 4/10/18
+//Written by Devin 10/9/18 updated 5/10/18
 //Code for taking 2P vessel morphology stacks, processing them, and outputting a distance map and 3d skeleton coordinates for use with matlab
 //to find diameters and vessel density etc.
 
@@ -28,8 +28,6 @@ import ij.io.DirectoryChooser; //Import so the user can select a directory from 
 import sc.fiji.analyzeSkeleton.AnalyzeSkeleton_;
 import sc.fiji.analyzeSkeleton.Edge;
 import sc.fiji.analyzeSkeleton.Point;
-
-import fiji.process.Image_Expression_Parser; //Import so we can use image parser
 
 //Argsin are the directory to search and the substring to search for
 public static listFilesAndFilesSubDirectories(String directoryName, String substring) {
@@ -64,13 +62,13 @@ public static listFilesAndFilesSubDirectories(String directoryName, String subst
 }
 
 //Argsin are just the title of the image to be ROI edited, and how many times the function has been run before
-public static roiRemoval(image, int timesRun) {
+public static roiRemoval(image) {
 
 	//Get the dimensions of the image, and create a new blank image in the same dimensions that will store the masks of the rois created
 	//[0] = width; [1] = height; [3] = slices
-	
-	//int[] imageDimensions = image.getDimensions();
 	maskImage = IJ.createImage("Mask", "8-bit black", image.getDimensions()[0], image.getDimensions()[1], image.getDimensions()[3]);
+	
+	//Get the image stack of our input image and mask image so we can manipulate voxel values
 	maskStack = maskImage.getImageStack();
 	imageStack = image.getImageStack();
 
@@ -100,15 +98,19 @@ public static roiRemoval(image, int timesRun) {
 			
 			} else {
 
+			
+			//Get a point selection from the roi drawn (i.e. all the individual pixels in the roi), create an x and y array to fill with the x and y values
 			pointSelection = image.getRoi().getContainedPoints();
 			int[] pointX = new int[pointSelection.length];
 			int[] pointY = new int[pointSelection.length];
 
+			//Fill the values
 			for(i=0; i<pointSelection.length; i++) {
 				pointX[i] = (int) pointSelection[i].getX();
 				pointY[i] = (int) pointSelection[i].getY();
 			}
 
+			//Looping through the slices the user selected, set the mask voxels to 255, and the voxels in the image to 0
 			for(i=0; i<pointSelection.length; i++) {
 				for(i0=0; i0<(endSlice-startSlice+1); i0++) {
 					maskStack.setVoxel(pointX[i], pointY[i], i0, 255.0);
@@ -117,6 +119,7 @@ public static roiRemoval(image, int timesRun) {
 				}
 			}
 
+			//Make sure there are no more selections in the input image
 			IJ.run(image, "Select None", "");
 			
 			//Create a dialog to ask the user whether they want to manually remove any more ROIs - if yes we repeat the loop
@@ -136,8 +139,6 @@ public static autoThreshTryAll(avg) {
 			
 	//Here we create a 5 slice substack of our smoothed, cleaned image, so that we can try out the auto thresholds on it
 	threshTest = new Duplicator().run(avg, 1, 5);
-	
-	//threshTest.show();
 
 	//This runs the try all action for the auto threshold method
 	IJ.run(threshTest, "Auto Threshold", "method=[Try all] white stack");
@@ -223,39 +224,70 @@ public static dialogUserApproval(String dialogTitle, String dialogText) {
 	return checkboxBoolean;
 }
 
+//This is to viualise how the skeleton and distance map of the thresholded image looks, input is an array of images where
+//[0] is the thresholded image (image), [1] is the rawImage (a duplicate of the non thresholded image), [2] is the threeDImage (a 3D visualisation of the 
+//skeleton overlaid on the non threhsolded image), [3] is the distance map, and [4] is the non thresholded image
+public static visualiseSkel(ImagePlus[] images) {
+
+	//Get image z calibration
+	imageZSize = image.getCalibration().pixelDepth;
+				
+	//Duplicate the thresholded image
+	rawImage=images[0].duplicate();
+				
+	//Skeletonise the input image, before merging the non thresholded image and the skeleton in RGB
+	IJ.run(image, "Skeletonize (2D/3D)", "");
+	IJ.run(rawImage, "Merge Channels...", "c5="+images[4].getTitle()+" c6="+image.getTitle()+" create keep");
+	merged = IJ.getImage();
+	
+	//3D project the merged image, and close the merged image
+	IJ.run(merged, "3D Project...", "projection=[Brightest Point] axis=Y-Axis slice="+imageZSize+" initial=0 total=360 rotation=10 lower=1 upper=255 opacity=0 surface=100 interior=50");
+	threeDImage = IJ.getImage();
+	merged.close();
+
+	//Run the distance map on the thresholded image copy
+	String noTif = rawImage.getTitle().substring(0, rawImage.getTitle().indexOf(".tif"));
+	IJ.run("3D Distance Map", "map=EDT image="+noTif+" mask=None threshold=1");
+	dmap = IJ.getImage();
+
+	//Return the array of images
+	return images;
+			
+}
+
 //Function to skeletonise the image and then create 3D projections of the skeletonised image and the backup image to help the user asses the quality of skeletonisation
 //User is also given the option to edit the skeleton and either proceed or revert back to the non-skeletonised image for further edits
-//Image is the skeleton, backup is a raw non-skeletonised, non thresholded image, timesRun is how many times removeRois has been run, and maskImages is the arraylist of
-//the mask images we've generated from removeRois
-public static skeletonChecking(image, backup, int timesRun, ArrayList maskImages) {		
+//Image is the skeleton, backup is a raw non-skeletonised, non thresholded image, maskImages is the arraylist of the mask images we've generated from removeRois
+public static skeletonChecking(image, backup, ArrayList maskImages) {		
 
 	//This variable stores whether the user is happy or with the skeleton after editing - if happy it gets set to 1, otherwise to 0, so if it remains set
 	//at 2 we know the user didn't edit the image
 	int skelGood=2;
 
-	rawImage=image.duplicate();
-	
-	//Skeletonise the input image
-	IJ.run(image, "Skeletonize (2D/3D)", "");
+	//Create an array of images to store the images we're going to be working with during visualisation
+	ImagePlus[] images = new ImagePlus[5];
 
-	//Get the calibration in Z of the input image
-	imageZSize = image.getCalibration().pixelDepth;
+	//Create imageplus variables to put in this array for images that we haven't generated yet
+	ImagePlus rawImage;
+	ImagePlus threeDImage;
+	ImagePlus dmap;
+	ImagePlus backup;
 
-	rawImage.show();
-	image.show();
+	//[0] is the thresholded image (image), [1] is the rawImage (a duplicate of the non thresholded image), [2] is the threeDImage (a 3D visualisation of the 
+	//skeleton overlaid on the non threhsolded image), [3] is the distance map, and [4] is the non thresholded image
+	images[0] = image;
+	images[1] = rawImage;
+	images[2] = threeDImage;
+	images[3] = dmap;
+	images[4] = backup;
 
-	IJ.run(rawImage, "Merge Channels...", "c5="+rawImage.getTitle()+" c6="+image.getTitle()+" create keep");
-	merged = IJ.getImage();
-	IJ.run(merged, "3D Project...", "projection=[Brightest Point] axis=Y-Axis slice="+imageZSize+" initial=0 total=360 rotation=10 lower=1 upper=255 opacity=0 surface=100 interior=50");
-	threeDImage = IJ.getImage();
+	//Run the visualisation
+	images = visualiseSkel(images);
 
-	String noTif = rawImage.getTitle().substring(0, rawImage.getTitle().indexOf(".tif"));
-
-	IJ.run("3D Distance Map", "map=EDT image="+noTif+" mask=None threshold=1");
-	dmap = IJ.getImage();
-
-	threeDImage.show();
-	dmap.show();
+	//Show all the images except the backup
+	for(i=0; i<images.length-1; i++) {
+		images[i].show();
+	}
 
 	//Check if the user is happy with the skeleton
 	skeletonFirstCheck = dialogUserApproval("Skeleton and DMap Satisfactory?", "Happy with the images?");
@@ -263,12 +295,12 @@ public static skeletonChecking(image, backup, int timesRun, ArrayList maskImages
 	//If the user was happy
 	if(skeletonFirstCheck == true) {
 
-		//Close the 3D projections and the backup
-		rawImage.close();
-		backup.close();
-		threeDImage.close();
-		merged.close();
-		dmap.close();
+		//Close all images except the 
+		for(i=0; i<images.length; i++) {
+			if(i!=0 || i!=3) {
+			images[1].close();
+			}
+		}
 
 	//If not
 	} else {
@@ -285,26 +317,13 @@ public static skeletonChecking(image, backup, int timesRun, ArrayList maskImages
 			//If the 3D skeleton isn't open already (will be open during first run, but not during subsequent loops) then run the 3D projeciton of it and
 			//reassign the variables to it
 			if(WindowManager.getWindow(threeDImage.getTitle())==null) {
+		
+				images = visualiseSkel(images);
+
+				for(i=0; i<images.length-1; i++) {
+					images[i].show();
+				}
 				
-				rawImage=image.duplicate();
-				rawImage.show();
-				
-				//Skeletonise the input image
-				IJ.run(image, "Skeletonize (2D/3D)", "");
-				IJ.run(rawImage, "Merge Channels...", "c5="+rawImage.getTitle()+" c6="+image.getTitle()+" create keep");
-				merged = IJ.getImage();
-				IJ.run(merged, "3D Project...", "projection=[Brightest Point] axis=Y-Axis slice="+imageZSize+" initial=0 total=360 rotation=10 lower=1 upper=255 opacity=0 surface=100 interior=50");
-				threeDImage = IJ.getImage();
-
-				String noTif = rawImage.getTitle().substring(0, rawImage.getTitle().indexOf(".tif"));
-
-				IJ.run("3D Distance Map", "map=EDT image="+noTif+" mask=None threshold=1");
-				dmap = IJ.getImage();
-			
-				threeDImage.show();
-				image.show();
-				dmap.show();
-
 			}
 
 			//Here we create a dialog box with the following options seen in the string array
@@ -321,7 +340,6 @@ public static skeletonChecking(image, backup, int timesRun, ArrayList maskImages
 			//Close the 3D image - we'll generate a new one on the next iteration if the final choice isn't made
 			threeDImage.close();
 			rawImage.close();
-			merged.close();
 
 			if (skelEdit==0) {
 
@@ -329,7 +347,7 @@ public static skeletonChecking(image, backup, int timesRun, ArrayList maskImages
 				
 				//We create a backup of the image then run the roiRemoval function
 				skelEditBackup = image.duplicate();	
-				roiMask = roiRemoval(image, timesRun);
+				roiMask = roiRemoval(image);
 
 				//Find out if the user is happy with the removal
 				skelRoiRemovalHappy = dialogUserApproval("ROI Removal", "Happy with the ROI removal?");	
@@ -427,27 +445,38 @@ public static calculateVolRemoved(parsedImage, voxelVolume) {
 //All this sorting code was adapted from http://techthinking.net/2010/04/how-to-sort-two-dimensional-data-based-on-multiple-parameters/
 class skeletonValues {
 
-	double xCoord;
-	double yCoord;
-	double zCoord;
-	double xCal;
-	double yCal;
-	double zCal;
-	double skelNo;
-	double branchNo;
-	double coordNo;
-	double radius;
+	double[] values
+	
+	//double xCoord;
+	//double yCoord;
+	//double zCoord;
+	//double xCal;
+	//double yCal;
+	//double zCal;
+	//double skelNo;
+	//double branchNo;
+	//double coordNo;
+	//double radius;
 
 	//Order of the data in skeletonValues is determined by the order of the data we get out of our 3d skeleton coordinates, which is:
 	//[0] is x coord, [1] is y, [2] is z, [3] to [5] is calibrated, [6] to [8] is skel, branch and coord, [9] is radius
+
+	public skeletonValues(double[] values) { 
 	
 	//Here a skeletonValues object contains the skelValues double array, so each skelValues object has 10 data points, and we define how to get our the radius, skelNo, branchNo, and coordNo from this data
-	public skeletonValues(double xCoord, double yCoord, double zCoord, double xCal, double yCal, double zCal, double skelNo, double branchNo, double coordNo, double radius) {
+	//public skeletonValues(double xCoord, double yCoord, double zCoord, double xCal, double yCal, double zCal, double skelNo, 
+		//double branchNo, double coordNo, double radius) {
 		super();
-		this.skelNo = skelNo;
-		this.branchNo = branchNo;
-		this.coordNo = coordNo;
-		this.radius = radius;
+		
+		//this.skelNo = skelNo;
+		//this.branchNo = branchNo;
+		//this.coordNo = coordNo;
+		//this.radius = radius;
+
+		this.skelNo = values[6];
+		this.branchNo = values[7];
+		this.coordNo = values[8];
+		this.radius  = [9];
 	}
 }
 
@@ -508,6 +537,96 @@ static final Comparator ORDER_BY_RULES = new Comparator() {
 	}
 };
 
+public static checkImageStatus(File file) {
+			
+	//Here we get the parent directory that our wideFOV ch2 image is in and find its associated ini file
+	File parentDirFile = file.getParentFile(); //File form to be used in making array of files from this directory
+	String parentDir = file.getParent(); //String form for use in saving images
+	
+	//This is a list of all the files in the parent directory
+	File[] parentFiles = parentDirFile.listFiles();
+
+	//Create an array to store the status, and the strings we're looking for
+	boolean[] stagesDone = new boolean[3];
+	String[] stringToFind = {"preprocessed", "thresholdedimages", "3dcoords"};
+
+	//Loop through the number of checks, and if we find the stringToFind[i] in teh parent directory, set the stagesDone[i] to true
+	for(i=0; i<stagesDone.length; i++) {
+		stagesDone[i] = lookingForSomething(parentFiles, stagesDone[i], stringToFind[i]);
+	}
+
+	//Return stagesdone
+	return stagesDone;
+
+}
+
+//Function to get out the image data from the associated ini file
+public static getIniData(File iniCheck) {
+					
+	IJ.log("Getting calibration values from ini file");
+	IJ.log("Ini file: " + iniCheck.getAbsolutePath());
+					
+	//We open the ini file as a string and retrieve the indices of the x, y, and z pixel sizes, as well as the number of frames per plane
+	//in addition we find the indices of the info that follows from those we're interested in so we can use them to cut substrings
+	iniText = ij.IJ.openAsString(iniCheck.getAbsolutePath());
+
+	//String of the text to find in the ini file
+	String[] iniValueStrings = {"x.pixel.sz = ", "y.pixel.sz = ", "z.spacing = ", "frames.per.plane = "};
+	
+	//Ints of how far past the index of the strings that we need to look to find the numbers
+	int[] iniTextIndicesPreAdds = {13,13,12,19};
+	
+	//New array to store the values we'll get from our ini file
+	double[] iniVariables = new double[4];
+	
+	//Loop through the variables we need to get out
+	for(i=0; i<iniValueStrings.length; i++) {
+
+		//Set the start point as the index of the string + the number of indices we need to add to it
+		startPoint = iniText.indexOf(iniValueStrings[i]) + iniTextIndicesPreAdds[i];
+		
+		//Loop through the start point to the end of the ini file
+		for(i0=startPoint; i0<iniText.length(); i0++) {
+			
+			//If the character we're indexing in our loop is a space
+			if(iniText.substring(i0, i0+1).matches(" ")) {
+				
+				//Create a new string from our start point to that point
+				newString = iniText.substring(startPoint, i0);
+				
+				//Loop through this new string, and find the first location of a character thats a letter rather than a number
+				int stringEnd;
+				for(i1=0; i1<newString.length(); i1++) {
+					if(Character.isLetter(newString.charAt(i1))) {
+						
+						//Once we find the letter, set i1 to the newString.length, and get out the index where we found this
+						stringEnd = i1;
+						i1 = newString.length();
+					}
+				}
+
+				//Create a new string from the start point to this endpoint, and store this in our iniVariables array
+				realString = newString.substring(0, stringEnd);							
+				
+				//If we're doing our first 2 values, the ini file stores them in metres, so multiply by 1e6 to get it in um, otherwise everything else
+				//is in um
+				if(i<2) {
+					iniVariables[i] = Double.valueOf(realString).doubleValue() * (1e6);
+				} else {
+					iniVariables[i] = Double.valueOf(realString).doubleValue();
+				}
+
+				//Set i0 to the iniText.length() so we terminate the loop
+				i0 = iniText.length();
+			}
+		}
+	}
+
+	//Return our iniVariables
+	return iniVariables;
+					
+}
+
 //Here we declare some variables again, because we need them in multiple scopes - these are for the frame averaged image, the thresholded image, 
 //and the parsedImage - the image containing masks of all rois removed		
 ImagePlus avg;
@@ -540,6 +659,7 @@ File[] output = listFilesAndFilesSubDirectories(dir, toFind);
 int length = output.length;
 IJ.log("Number of matching files found: " + Integer.toString(length));
 
+//Declare the frames per Z as an int, and an array to store the pixel sizes
 int FperZ;
 double[] pxlSizes = new double[3];
 //[0] is x, [1] is y, [2] is z
@@ -547,103 +667,34 @@ double[] pxlSizes = new double[3];
 //We declare our array to contain our image dimensions, as well as the individual variables we'll use to store them
 int[] avgDimensions;
 
+//Declare variables to store the volume of the image and the volume we remove during roi removal
 double avgVolume;
 double volumeRemoved;
 
-//Here we go through our list of file locations and open ones that include ch_2 (i.e. they are TexasRed) if selected channel is 2
+//Here we go through our list of file locations
 for (File file:output) {
-
+	
+	//If the file is ch_2, then we get the stages done i.e. whether we've done preprocessing, threhsolding, or skeleton analysis
 	if(file.getAbsolutePath().contains(channels[channelChoice]) == true) {
+
+		IJ.log("Checking analysis status of " + file.getAbsolutePath());
+		stagesDone = checkImageStatus(file, stagesDone);
 		
-		//Here we get the parent directory that our wideFOV ch2 image is in and find its associated ini file
-		File parentDirFile = file.getParentFile(); //File form to be used in making array of files from this directory
-		String parentDir = file.getParent(); //String form for use in saving images
-
-		//This is a list of all the files in the parent directory
-		File[] parentFiles = parentDirFile.listFiles();
-
-		//We create these variables to determine whether we've done thresholding, distance mapping, and skeleton analysis for the current image in question
-		//and set to 0 by default
-		boolean[] stagesDone = new boolean[3];
-		//[0] is preprocessing, [1] is threhsolding done, [2] is skeleton analysis
-
-		IJ.log("Analyzing image: " + file.getAbsolutePath());
-
-		//If we find any image containing the string thresholdedimage in our directory, set thresholdingdone to 1, otherwise all will be set to 0 as we need
-		//the thresholded image to complete any of the other steps
-		stagesDone[0] = lookingForSomething(parentFiles, stagesDone[0], "preprocessed");
-
-		//If the thresholded image exists, we look for a dmap file, and if we find it, set distanceMapDone to 1, but otherwise it and skeletondone will remain
-		//at 0 as to do the skeleton we will have had to already do the distance map
-		if(stagesDone[0] == true) {
-			IJ.log("Preprocessing of image already done");
-			stagesDone[1] = lookingForSomething(parentFiles, stagesDone[1], "thresholdedimage");
-		}
-
-		if(stagesDone[1] == true) {
-			IJ.log("Thresholding of image done");
-			stagesDones[2] = lookingForSomething(parentFiles, stagesDone[2], "3dcoords");
-		}
-
-		//Declare the volume of our avg image, and also the volume removed by rois - we set this to 0 when declaring as if unchanged, then we haven't
-		//removed any rois and this is valid
-		volumeRemoved = 0;	
-
-		//If the image hasn't been thresholded - the first step in processing
+		//If the image hasn't been preprocessed
 		if(stagesDone[0] == false) {
 
 			//We loop through the files in the parent directory and if any of them are an ini file
 			for(File iniCheck:parentFiles) {
 				if(iniCheck.getAbsolutePath().toLowerCase().contains("ini") == true) {
 					
-					IJ.log("Getting calibration values from ini file");
-					IJ.log("Ini file: " + iniCheck.getAbsolutePath());
-					
-					//We open the ini file as a string and retrieve the indices of the x, y, and z pixel sizes, as well as the number of frames per plane
-					//in addition we find the indices of the info that follows from those we're interested in so we can use them to cut substrings
-					iniText = ij.IJ.openAsString(iniCheck.getAbsolutePath());
-					String[] iniValueStrings = {"x.pixel.sz = ",
-												"y.pixel.sz = ",
-												"z.spacing = ",
-												"frames.per.plane = "};
-					int[] iniTextIndicesPreAdds = {13,13,12,19};
-					double[] iniVariables = new double[4];
-					iniTextLength = iniText.length();
-					for(i=0; i<iniValueStrings.length; i++) {
-						startPoint = iniText.indexOf(iniValueStrings[i]) + iniTextIndicesPreAdds[i];
-						for(i0=startPoint; i0<iniTextLength; i0++) {
-							if(iniText.substring(i0, i0+1).matches(" ")) {
-								newString = iniText.substring(startPoint, i0);
-								int stringEnd;
-								for(i1=0; i1<newString.length(); i1++) {
-									if(Character.isLetter(newString.charAt(i1))) {
-										stringEnd = i1;
-										i1 = newString.length();
-									}
-								}
-								realString = newString.substring(0, stringEnd);							
-								if(i<2) {
-									iniVariables[i] = Double.valueOf(realString).doubleValue() * (1e6);
-								} else {
-									iniVariables[i] = Double.valueOf(realString).doubleValue();
-								}
-								i0 = iniTextLength;
-							}
-						}
-					}
+					//Get out the ini variables using the associated ini file
+					iniVariables = getIniData(iniCheck);
+					//[0] is FperZ, [1] is xSize, [2] is ySize, [3] is zSize
 
-					//Here we declare variables for our frames per z, and our pixels sizes, as these will be filled in by the code immediately after, but are needed
-					//beyond this section
-					//Here we convert our FperZ into an int, as no point in a double - it has to be an integer value
-					FperZ = (int) iniVariables[3];
-					
-					for(i=0; i<pxlSizes.length; i++) {
-						pxlSizes[i] = iniVariables[i];
-					}
-				
+					//Set the iniCheck variable to the biggest it could be so we exit the loop
+					iniCheck = parentFiles[parentFiles.length-1];
 				}
 			}
-
 
 			//We open the image and get it's name
 			imp=IJ.openImage(file.getAbsolutePath());
@@ -657,7 +708,7 @@ for (File file:output) {
 			
 			//We show the image before group Z projecting it and then closing it
 			imp.show();
-			IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+FperZ+"");
+			IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+(int) iniVariables[0]+"");
 			imp.close();
 				
 			//Here we get the averaged image and set it as avg and retrieve the image with the avg name
@@ -673,117 +724,48 @@ for (File file:output) {
 			//Here we fill our variables with the dimensions of the average image etc.
 			//[0] is width, [1] is height, [2] is channels, [3] is slices, [4] is frames
 			avgDimensions = avg.getDimensions();
-			int[] imageDimensions = {avgDimensions[0], avgDimensions[1], avgDimensions[3]};
-
-			//Calculate the volume of the image in calibrated units
-			avgVolume=1;
-			for(i=0; i<imageDimensions.length; i++) {
-				avgVolume = imageDimensions[i] * pxlSizes[i] * avgVolume;
-			}
 
 			IJ.log("Calibrating image with ini values");
 			
 			//Calibrate the average image according to the values taken from the ini file
-			IJ.run(avg, "Properties...", "channels="+avgDimensions[2]+" slices="+imageDimensions[2]+" frames="+avgDimensions[4]+" unit=µm pixel_width="+pxlSizes[0]+" pixel_height="+pxlSizes[1]+" voxel_depth="+pxlSizes[2]+"");
+			IJ.run(avg, "Properties...", "channels="+avgDimensions[2]+" slices="+avgDimensions[3]+" frames="+avgDimensions[4]+" unit=µm pixel_width="+iniVariables[1]+" pixel_height="+iniVariables[2]+" voxel_depth="+iniVariables[3]+"");
 
 			IJ.saveAsTiff(avg, parentDir + "/preprocessed.tif");
 			avg.close();
+
+			IJ.log("Preprocessing for " + file.getAbsolutePath() + " complete");
 
 		}
 	}
 }
 
+//Loop through the list of file locations, and find one that is in channel 2
 for (File file:output) {
-
 	if(file.getAbsolutePath().contains(channels[channelChoice]) == true) {
 		
-		//Here we get the parent directory that our wideFOV ch2 image is in and find its associated ini file
-		File parentDirFile = file.getParentFile(); //File form to be used in making array of files from this directory
-		String parentDir = file.getParent(); //String form for use in saving images
+		//Get the image status
+		stagesDone = checkImageStatus(file, stagesDone);	
 
-		//This is a list of all the files in the parent directory
-		File[] parentFiles = parentDirFile.listFiles();
+		//If the thresholding isn't done but preprocessing has been done
+		if(stagesDone[0] == true && stagesDone[1] == false) {
 
-		//We create these variables to determine whether we've done thresholding, distance mapping, and skeleton analysis for the current image in question
-		//and set to 0 by default
-		boolean[] stagesDone = new boolean[3];
-		//[0] is preprocessing, [1] is threhsolding done, [2] is skeleton analysis
-
-		IJ.log("Analyzing image: " + file.getAbsolutePath());
-
-		//If we find any image containing the string thresholdedimage in our directory, set thresholdingdone to 1, otherwise all will be set to 0 as we need
-		//the thresholded image to complete any of the other steps
-		stagesDone[0] = lookingForSomething(parentFiles, stagesDone[0], "preprocessed");
-
-		//If the thresholded image exists, we look for a dmap file, and if we find it, set distanceMapDone to 1, but otherwise it and skeletondone will remain
-		//at 0 as to do the skeleton we will have had to already do the distance map
-		if(stagesDone[0] == true) {
-			IJ.log("Preprocessing of image already done");
-			stagesDone[1] = lookingForSomething(parentFiles, stagesDone[1], "thresholdedimage");
-		}
-
-		if(stagesDone[1] == true) {
-			IJ.log("Thresholding of image done");
-			stagesDones[2] = lookingForSomething(parentFiles, stagesDone[2], "3dcoords");
-		}
-
-		//Declare the volume of our avg image, and also the volume removed by rois - we set this to 0 when declaring as if unchanged, then we haven't
-		//removed any rois and this is valid
-		volumeRemoved = 0;	
-
-		if(stagesDone[1] == false) {
-
-			for(File imageFind : parentFiles) {
-				if (imageFind.getAbsolutePath().toLowerCase().contains("preprocessed") == true) {
-					avg = IJ.openImage(imageFind.getAbsolutePath());
-					avgDimensions = avg.getDimensions();
-				} else if(imageFind.getAbsolutePath().toLowerCase().contains("ini") == true) {
+			//We loop through the files in the parent directory and if any of them are an ini file
+			for(File iniCheck:parentFiles) {
+				if(iniCheck.getAbsolutePath().toLowerCase().contains("ini") == true) {
 					
-					IJ.log("Getting calibration values from ini file");
-					IJ.log("Ini file: " + imageFind.getAbsolutePath());
-					
-					//We open the ini file as a string and retrieve the indices of the x, y, and z pixel sizes, as well as the number of frames per plane
-					//in addition we find the indices of the info that follows from those we're interested in so we can use them to cut substrings
-					iniText = ij.IJ.openAsString(imageFind.getAbsolutePath());
-					String[] iniValueStrings = {"x.pixel.sz = ",
-												"y.pixel.sz = ",
-												"z.spacing = ",
-												"frames.per.plane = "};
-					int[] iniTextIndicesPreAdds = {13,13,12,19};
-					double[] iniVariables = new double[4];
-					iniTextLength = iniText.length();
-					for(i=0; i<iniValueStrings.length; i++) {
-						startPoint = iniText.indexOf(iniValueStrings[i]) + iniTextIndicesPreAdds[i];
-						for(i0=startPoint; i0<iniTextLength; i0++) {
-							if(iniText.substring(i0, i0+1).matches(" ")) {
-								newString = iniText.substring(startPoint, i0);
-								int stringEnd;
-								for(i1=0; i1<newString.length(); i1++) {
-									if(Character.isLetter(newString.charAt(i1))) {
-										stringEnd = i1;
-										i1 = newString.length();
-									}
-								}
-								realString = newString.substring(0, stringEnd);							
-								if(i<2) {
-									iniVariables[i] = Double.valueOf(realString).doubleValue() * (1e6);
-								} else {
-									iniVariables[i] = Double.valueOf(realString).doubleValue();
-								}
-								i0 = iniTextLength;
-							}
-						}
-					}
+					//Get out the ini variables using the associated ini file
+					iniVariables = getIniData(iniCheck);
+					//[0] is FperZ, [1] is xSize, [2] is ySize, [3] is zSize
 
-					//Here we declare variables for our frames per z, and our pixels sizes, as these will be filled in by the code immediately after, but are needed
-					//beyond this section
-					//Here we convert our FperZ into an int, as no point in a double - it has to be an integer value
-					FperZ = (int) iniVariables[3];
-					
-					for(i=0; i<pxlSizes.length; i++) {
-						pxlSizes[i] = iniVariables[i];
-					}
-				
+					//Set the iniCheck variable to the biggest it could be so we exit the loop
+					iniCheck = parentFiles[parentFiles.length-1];
+				}
+			}
+
+			//We loop through the files in the parent directory and if any of them are the preprocessed file, open it
+			for(File imageCheck:parentFiles) {
+				if(imageCheck.getAbsolutePath().toLowerCase().contains("preprocessed") == true) {
+					avg = IJ.openImage(imageCheck.getAbsolutePath());
 				}
 			}
 			
@@ -913,7 +895,7 @@ for (File file:output) {
 							thresholdedImage = avg.duplicate();
 			
 							//Here we check the skeleton and edit it if the user wants to
-							skelCheckOutput = skeletonChecking(avg, backup, timesRun, maskImages);
+							skelCheckOutput = skeletonChecking(avg, backup, maskImages);
 			
 							//Get the outputs from that function - i.e. whether the user approved the skeleton at first go, and then whether the user approved or
 							//disapproved of the skeleton after editing 
@@ -962,7 +944,7 @@ for (File file:output) {
 						thresholdedImage = avg.duplicate();
 			
 						//Here we check the skeleton and edit it if the user wants to
-						skelCheckOutput = skeletonChecking(avg, backup, timesRun, maskImages);
+						skelCheckOutput = skeletonChecking(avg, backup, maskImages);
 			
 						//Get the outputs from that function - i.e. whether the user approved the skeleton at first go, and then whether the user approved or
 						//disapproved of the skeleton after editing 
@@ -998,7 +980,7 @@ for (File file:output) {
 					backup = avg.duplicate();
 						
 					//Run the roi removal function
-					roiMask = roiRemoval(avg, timesRun);
+					roiMask = roiRemoval(avg);
 			
 					//Check if the user is happy with the result
 					roiRemovalHappy = dialogUserApproval("ROI Removal", "Happy with the ROI removal?");
@@ -1111,24 +1093,16 @@ for (File file:output) {
 				//We then invert and 8-bit the parsed image output (the sum of all mask windows)
 				IJ.run(parsedImage, "Invert", "stack");
 				IJ.run(parsedImage, "8-bit", "");
-			
+
+				//Here we fill our variables with the dimensions of the average image etc.
+				//[0] is width, [1] is height, [2] is channels, [3] is slices, [4] is frames
+				avgDimensions = avg.getDimensions();
+
 				//Calibrate the parsed image
-				IJ.run(parsedImage, "Properties...", "channels="+avgDimensions[2]+" slices="+avgDimensions[3]+" frames="+avgDimensions[4]+" unit=µm pixel_width="+pxlSizes[0]+" pixel_height="+pxlSizes[1]+" voxel_depth="+pxlSizes[2]+"");
-
-				//Calculate the volume occupied by a single voxel using calibrated values of width and depth
-				voxelVolume=(pxlSizes[0]*pxlSizes[1]*pxlSizes[2]);
-
+				IJ.run(parsedImage, "Properties...", "channels="+avgDimensions[2]+" slices="+avgDimensions[3]+" frames="+avgDimensions[4]+" unit=µm pixel_width="+iniVariables[1]+" pixel_height="+iniVariables[2]+" voxel_depth="+iniVariables[3]+"");
+				
 				//Threshold the parsedImage (if we're combining multiple images we need to re-binarise the image)
 				IJ.setThreshold(parsedImage, 0.00, 254.0, "Black & White");
-				
-				//Calculate the volume removed by roi removal
-				volumeRemoved = calculateVolRemoved(parsedImage, voxelVolume);
-			
-				//IJ.log("Calculated space removed by ROIs");	
-				IJ.log("Volume removed: " + IJ.d2s(volumeRemoved, 9) + "um^3");
-
-				IJ.log("Saving image of removed areas to parent directory");
-				IJ.log("Parent directory: " + parentDir);
 		
 				//Save changes to the parsed image, and close it
 				parsedImage.changes = true;
@@ -1168,51 +1142,37 @@ for (File file:output) {
 
 	if(file.getAbsolutePath().contains(channels[channelChoice]) == true) {
 		
-		//Here we get the parent directory that our wideFOV ch2 image is in and find its associated ini file
-		File parentDirFile = file.getParentFile(); //File form to be used in making array of files from this directory
-		String parentDir = file.getParent(); //String form for use in saving images
-
-		//This is a list of all the files in the parent directory
-		File[] parentFiles = parentDirFile.listFiles();
-
-		//We create these variables to determine whether we've done thresholding, distance mapping, and skeleton analysis for the current image in question
-		//and set to 0 by default
-		boolean[] stagesDone = new boolean[3];
-		//[0] is preprocessing, [1] is threhsolding done, [2] is skeleton analysis
-
-		IJ.log("Analyzing image: " + file.getAbsolutePath());
-
-		//If we find any image containing the string thresholdedimage in our directory, set thresholdingdone to 1, otherwise all will be set to 0 as we need
-		//the thresholded image to complete any of the other steps
-		stagesDone[0] = lookingForSomething(parentFiles, stagesDone[0], "preprocessed");
-
-		//If the thresholded image exists, we look for a dmap file, and if we find it, set distanceMapDone to 1, but otherwise it and skeletondone will remain
-		//at 0 as to do the skeleton we will have had to already do the distance map
-		if(stagesDone[0] == true) {
-			IJ.log("Preprocessing of image already done");
-			stagesDone[1] = lookingForSomething(parentFiles, stagesDone[1], "thresholdedimage");
-		}
-
-		if(stagesDone[1] == true) {
-			IJ.log("Thresholding of image done");
-			stagesDones[2] = lookingForSomething(parentFiles, stagesDone[2], "3dcoords");
-		}
-
-		//Declare the volume of our avg image, and also the volume removed by rois - we set this to 0 when declaring as if unchanged, then we haven't
-		//removed any rois and this is valid
-		volumeRemoved = 0;	
+		stagesDone = checkImageStatus(file, stagesDone);	
 
 		if(stagesDone[2] == false) {
 
+			volumeRemoved = 0;
+			avgVolume;
+			
+			//We loop through the files in the parent directory and if any of them are an ini file
+			for(File iniCheck:parentFiles) {
+				if(iniCheck.getAbsolutePath().toLowerCase().contains("ini") == true) {
+					iniVariables = getIniData(iniCheck);
+					//[0] is FperZ, [1] is xSize, [2] is ySize, [3] is zSize
+					iniCheck = parentFiles[parentFiles.length-1];
+				}
+			}
+			
 			for(File imageFind : parentFiles) {
 				if (imageFind.getAbsolutePath().toLowerCase().contains("skeleton") == true) {
 					avg = IJ.openImage(imageFind.getAbsolutePath());
 					avgDimensions = avg.getDimensions();
+
+					//Calculate the volume of the image in calibrated units
+					avgVolume=1;
+					for(i=0; i<imageDimensions.length; i++) {
+						avgVolume = imageDimensions[i] * pxlSizes[i] * avgVolume;
+					}
+					
 				} else if(imageFind.getAbsolutePath().toLowerCase().contains("dmap") == true) {
 					dmap = IJ.openImage(imageFind.getAbsolutePath());
 				} else if(imageFind.getAbsolutePath().toLowerCase().contains("masks") == true) {
 					parsedImage = IJ.openImage(imageFind.getAbsolutePath());
-
 					//Calculate the volume occupied by a single voxel using calibrated values of width and depth
 					voxelVolume=(pxlSizes[0]*pxlSizes[1]*pxlSizes[2]);
 
@@ -1220,88 +1180,8 @@ for (File file:output) {
 					volumeRemoved = calculateVolRemoved(parsedImage, voxelVolume);
 
 					parsedImage.close();
-				} else if(imageFind.getAbsolutePath().toLowerCase().contains("ini") == true) {
-
-					
 				}
-
-			IJ.log("Thresholding done but not skeleton analysis");
-			IJ.log("Retrieving masks of ROIs removed");
-
-			//Look through the directory for the thresholded image and skeletonised image and open if they exist
-			for(File thresholdingCheck:parentFiles) {
-				if (thresholdingCheck.getAbsolutePath().toLowerCase().contains("skeletonisedimage") == true) {
-					avg = IJ.openImage(thresholdingCheck.getAbsolutePath());
-
-					//Get the dimensions of the calibrated skeletonised image
-					avgDimensions = avg.getDimensions();
-					
-				//If we've removed masks, then we open the masksremoved imageand calculate the voxels cleared
-				} else if (thresholdingCheck.getAbsolutePath().toLowerCase().contains("masksremoved") == true) {
-					//IJ.log("Getting voxels removed");
-
-					parsedImage = IJ.openImage(thresholdingCheck.getAbsolutePath());
-					
-					//Calculate the volume occupied by a single voxel using calibrated values of width and depth
-					voxelVolume=(pxlSizes[0]*pxlSizes[1]*pxlSizes[2]);
-
-					//Calculate the volume removed by roi removal
-					volumeRemoved = calculateVolRemoved(parsedImage, voxelVolume);
-
-				} else if (thresholdingCheck.getAbsolutePath().toLowerCase().contains("dmap") == true) {
-					dmap = IJ.openImage(thresholdingCheck.getAbsolutePath());
-				} else if(imageFind.getAbsolutePath().toLowerCase().contains("ini") == true) {
-					
-					IJ.log("Getting calibration values from ini file");
-					IJ.log("Ini file: " + imageFind.getAbsolutePath());
-					
-					//We open the ini file as a string and retrieve the indices of the x, y, and z pixel sizes, as well as the number of frames per plane
-					//in addition we find the indices of the info that follows from those we're interested in so we can use them to cut substrings
-					iniText = ij.IJ.openAsString(imageFind.getAbsolutePath());
-					String[] iniValueStrings = {"x.pixel.sz = ",
-												"y.pixel.sz = ",
-												"z.spacing = ",
-												"frames.per.plane = "};
-					int[] iniTextIndicesPreAdds = {13,13,12,19};
-					double[] iniVariables = new double[4];
-					iniTextLength = iniText.length();
-					for(i=0; i<iniValueStrings.length; i++) {
-						startPoint = iniText.indexOf(iniValueStrings[i]) + iniTextIndicesPreAdds[i];
-						for(i0=startPoint; i0<iniTextLength; i0++) {
-							if(iniText.substring(i0, i0+1).matches(" ")) {
-								newString = iniText.substring(startPoint, i0);
-								int stringEnd;
-								for(i1=0; i1<newString.length(); i1++) {
-									if(Character.isLetter(newString.charAt(i1))) {
-										stringEnd = i1;
-										i1 = newString.length();
-									}
-								}
-								realString = newString.substring(0, stringEnd);							
-								if(i<2) {
-									iniVariables[i] = Double.valueOf(realString).doubleValue() * (1e6);
-								} else {
-									iniVariables[i] = Double.valueOf(realString).doubleValue();
-								}
-								i0 = iniTextLength;
-							}
-						}
-					}
-
-					//Here we declare variables for our frames per z, and our pixels sizes, as these will be filled in by the code immediately after, but are needed
-					//beyond this section
-					//Here we convert our FperZ into an int, as no point in a double - it has to be an integer value
-					FperZ = (int) iniVariables[3];
-					
-					for(i=0; i<pxlSizes.length; i++) {
-						pxlSizes[i] = iniVariables[i];
-					}
-				
-				}
-			}
-
-		//Otherwise if we've done both a distance map and thresholding - here we get the info we need for skeleton 3d coords
-		}  
+			} 
 
 			volumeAnalysed = avgVolume - volumeRemoved;
 
