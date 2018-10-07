@@ -302,6 +302,8 @@ public static skeletonChecking(image, backup, ArrayList maskImages) {
 			}
 		}
 
+		IJ.log("Image skeleton and distance map approved");
+
 	//If not
 	} else {
 
@@ -355,27 +357,26 @@ public static skeletonChecking(image, backup, ArrayList maskImages) {
 				//If so, we add the mask image to the arrayList of created mask images, increase timesRun, and close the backup we previously made
 				if(skelRoiRemovalHappy == true) {
 					maskImages.add(roiMask);
-					timesRun++;
 					skelEditBackup.close();
+					IJ.log("Removed part of skeleton");
 				//Else we close the mask and replace our roiRemoved image with our backup image using the replaceWithBackup function
 				} else {
 					roiMask.close();
 					image = replaceWithBackup(image, skelEditBackup);
 				}
 
-			//If the user has made a final choice, set choiceMade to true and close the raw 3d image
-			} else if(skelEdit==1 || skelEdit ==2) {
-				choiceMade = true;
-			}
-
 			//If the user is happy with the skeleton, skelgood = 1 and we close the non-thresholded backup
 			if(skelEdit==1) {
 				skelGood = 1;
 				backup.close();
+				IJ.log("Skeleton and distance map approved");
+				choiceMade = true;
 			//Otherwise skelgood = 0
 			} else if (skelEdit==2) {
 				skelGood = 0;
 				dmap.close();
+				IJ.log("Rejecting skeleton and distance map");
+				choiceMade = true;
 			}
 
 		}
@@ -388,7 +389,6 @@ public static skeletonChecking(image, backup, ArrayList maskImages) {
 	//Return whether the user was happy with the first skeleton check, and then if they were happy after editing, and how many times roiRemoval was run
 	choices.add(skeletonFirstCheck);
 	choices.add(skelGood);
-	choices.add(timesRun);
 
 	return choices;
 
@@ -772,9 +772,6 @@ for (File file:output) {
 			//Create a backup of the input image that we can revert to during image processing if we want a clean slate
 			babyFresh=avg.duplicate();
 			
-			//We count how many times we've run the roiRemoval function so that we know how many outputs we have to deal with at the end of this function
-			timesRun=0;
-			
 			//Create an array to store the maskImages output by the roiRemoval function
 			ArrayList maskImages = new ArrayList();
 			
@@ -784,10 +781,12 @@ for (File file:output) {
 			//While we want to keep editing
 			while(editImage == true) {
 
+				//If the user has press escape during the condition, exit the macro
 				if(IJ.escapePressed() == true) {
 					System.exit();
 				}
 
+				//Show the input image
 				avg.show();
 			
 				//Ask the user to choose between these choices
@@ -813,6 +812,7 @@ for (File file:output) {
 			
 					if(despeckleCheck == true) {
 						backup.close();
+						IJ.log("Image despeckled");
 					} else {
 						avg = replaceWithBackup(avg, backup);
 					}
@@ -863,6 +863,8 @@ for (File file:output) {
 			
 					if(smoothFirstCheck == true) {
 						backup.close();
+						IJ.log("Image smoothed using: " + smoothingArray[smoothingMethod]);
+						IJ.log("Pixel sizes used: " + " x:" + pixelSizeChoices.get(0) + " y:" + pixelSizeChoices.get(1) + " z:" + pixelSizeChoices.get(2));
 					} else {
 						avg = replaceWithBackup(avg, backup);
 					}
@@ -891,6 +893,8 @@ for (File file:output) {
 						//If so, we try out skeletonising the threhsolded image
 						if(threshFirstCheck == true) {
 
+							IJ.log("Proceeding with threshold: " + threshNames[(autoThreshFinal-1)]);
+							
 							//Here we backup the thresholded image
 							thresholdedImage = avg.duplicate();
 			
@@ -902,7 +906,6 @@ for (File file:output) {
 							//We also get how many times roiremoval was run during the skeleton editing (this will just be an update on the input timesRun value)
 							skeletonFirstCheck = skelCheckOutput.get(0);
 							skelGood = skelCheckOutput.get(1);
-							timesRun = skelCheckOutput.get(2);
 			
 							//If user was happy with the skeleton on the first check, or after editing, then exit the editing condition
 							if(skelGood ==1 || skeletonFirstCheck == true) {
@@ -913,6 +916,7 @@ for (File file:output) {
 								dmap = WindowManager.getWindow("EDT");
 								dmap.changes = true;
 								IJ.saveAsTiff(dmap, parentDir + "/dmap.tif");
+								IJ.log("Saved non thresholded and distance map images");
 							//Otherwise if the user wasn't happy on the first go or after editing, we replace the skeletonised image with a non-thresholded backup
 							//and close the thresholded image that was a backup, i.e., revert to pre-thresholded image
 							} else if (skelGood ==0 || skeletonFirstCheck == false) {
@@ -951,7 +955,6 @@ for (File file:output) {
 						//We also get how many times roiremoval was run during the skeleton editing (this will just be an update on the input timesRun value)
 						skeletonFirstCheck = skelCheckOutput.get(0);
 						skelGood = skelCheckOutput.get(1);
-						timesRun = skelCheckOutput.get(2);
 			
 						//If user was happy with the skeleton on the first check, or after editing, then exit the editing condition
 						if(skelGood ==1 || skeletonFirstCheck == true) {
@@ -962,11 +965,14 @@ for (File file:output) {
 							dmap = WindowManager.getWindow("EDT");
 							dmap.changes = true;
 							IJ.saveAsTiff(dmap, parentDir + "/dmap.tif");
+							IJ.log("Approved skeleton and distance map");
+							IJ.log("Saving nonthresholded and distance map images");
 						//Otherwise if the user wasn't happy on the first go or after editing, we replace the skeletonised image with a non-thresholded backup
 						//and close the thresholded image that was a backup, i.e., revert to pre-thresholded image
 						} else if (skelGood ==0 || skeletonFirstCheck == false) {
 							avg = replaceWithBackup(avg, backup);
 							thresholdedImage.close();
+							IJ.log("Skeleton and distance map rejected");
 						}
 					//If the user wasn't happy with manual thresholding initially, replace the thresholded image with the backup
 					} else {
@@ -989,7 +995,7 @@ for (File file:output) {
 					if(roiRemovalHappy == true) {				
 						backup.close();
 						maskImages.add(roiMask);
-						timesRun++;
+						IJ.log("User removed sections of image");
 					//Otherwise we close the mask and replace the input with the backup
 					} else {
 						roiMask.close();
@@ -1002,12 +1008,13 @@ for (File file:output) {
 					//Replace the input image with the babyfresh backup and create a new babyfresh backup
 					avg = replaceWithBackup(avg, babyFresh);
 					babyFresh=avg.duplicate();
+					IJ.log("Removing all image edits and starting from scratch");
 				}
 			
 			}
 
 			//After image editing we check if the user has run the roiRemoval function, and if they have then we have to calculate the volume they've removed
-			if(timesRun>0) {
+			if(maskImages.size()>0) {
 	
 				IJ.log("Calculating total volume removed during ROI removal");
 				
@@ -1036,7 +1043,7 @@ for (File file:output) {
 				}
 			
 				//Loop through the number of times we've run roiRemoval
-				for(roisRun = 0; roisRun <timesRun; roisRun++){
+				for(roisRun = 0; roisRun <maskImages.size(); roisRun++){
 					//Get the mask image from the arraylist and its title
 					tempSelect = maskImages.get(roisRun);
 					tempSelect.setTitle("Mask " + Integer.toString(roisRun));
@@ -1083,9 +1090,13 @@ for (File file:output) {
 				parsedImageVirt.close();
 				//And show the duplicate
 				parsedImage.show();
+
+				IJ.run(parsedImage, "Invert", "stack");
+				IJ.setAutoThreshold(parsedImage, "Default dark");
+				IJ.run(parsedImage, "Convert to Mask", "method=Default background=Dark");
 		
 				//We then loop through the number of times we've run the roiRemoval and close all the associated mask windows
-				for(roisRun = 0; roisRun <timesRun; roisRun++){
+				for(roisRun = 0; roisRun <maskImages.size(); roisRun++){
 					tempSelect = maskImages.get(roisRun);
 					tempSelect.close();
 				}
@@ -1108,6 +1119,7 @@ for (File file:output) {
 				parsedImage.changes = true;
 				IJ.saveAsTiff(parsedImage, parentDir+"/masksRemoved.tif");
 				parsedImage.close();
+				IJ.log("Saved removed masks image");
 	
 			//If no roi removals were done
 			} else {
