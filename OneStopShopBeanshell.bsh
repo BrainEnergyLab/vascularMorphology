@@ -77,6 +77,8 @@ public static roiRemoval(image) {
 
 	//Show the input image
 	image.show();
+
+	IJ.run("Tile", "");
 		
 	//While true, enter the roi removal condition
 	while (removeROIs == true) {
@@ -315,6 +317,8 @@ public static skeletonChecking(image, backup, ArrayList maskImages) {
 	images[2].setTitle("Skel visualisation in 3D");
 	images[0].setTitle("Skeleton");
 
+	IJ.run("Tile", "");
+
 	//Check if the user is happy with the skeleton
 	skeletonFirstCheck = dialogUserApproval("Skeleton and DMap Satisfactory?", "Happy with the images?");
 	
@@ -335,6 +339,8 @@ public static skeletonChecking(image, backup, ArrayList maskImages) {
 
 		//Whilst we haven't made a final choice, we enter this condition
 		while(choiceMade == false) {
+
+			IJ.run("Tile", "");
 
 			//Here we create a dialog box with the following options seen in the string array
 			String [] skeletonEditChoices = {"Remove parts of the skeleton", "Proceed with skeleton as is", "Return to the non-skeletonised image to make changes"};
@@ -359,6 +365,8 @@ public static skeletonChecking(image, backup, ArrayList maskImages) {
 				//We create a backup of the image then run the roiRemoval function
 				skelEditBackup = images[0].duplicate();	
 				roiMask = roiRemoval(images[0]);
+
+				IJ.run("Tile", "");
 
 				//Find out if the user is happy with the removal
 				skelRoiRemovalHappy = dialogUserApproval("ROI Removal", "Happy with the ROI removal?");	
