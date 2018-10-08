@@ -230,25 +230,34 @@ public static dialogUserApproval(String dialogTitle, String dialogText) {
 public static visualiseSkel(ImagePlus[] images) {
 
 	//Get image z calibration
-	imageZSize = image.getCalibration().pixelDepth;
+	imageZSize = images[0].getCalibration().pixelDepth;
+
+	images[4].show();
 				
 	//Duplicate the thresholded image
 	rawImage=images[0].duplicate();
+	images[1] = rawImage;
 				
 	//Skeletonise the input image, before merging the non thresholded image and the skeleton in RGB
-	IJ.run(image, "Skeletonize (2D/3D)", "");
-	IJ.run(rawImage, "Merge Channels...", "c5="+images[4].getTitle()+" c6="+image.getTitle()+" create keep");
+	IJ.run(images[0], "Skeletonize (2D/3D)", "");
+	IJ.run(rawImage, "Merge Channels...", "c5="+images[4].getTitle()+" c6="+images[0].getTitle()+" create keep");
 	merged = IJ.getImage();
+
+	images[4].hide();
 	
 	//3D project the merged image, and close the merged image
 	IJ.run(merged, "3D Project...", "projection=[Brightest Point] axis=Y-Axis slice="+imageZSize+" initial=0 total=360 rotation=10 lower=1 upper=255 opacity=0 surface=100 interior=50");
 	threeDImage = IJ.getImage();
 	merged.close();
+	images[2] = threeDImage;
+
+	rawImage.show();
 
 	//Run the distance map on the thresholded image copy
 	String noTif = rawImage.getTitle().substring(0, rawImage.getTitle().indexOf(".tif"));
 	IJ.run("3D Distance Map", "map=EDT image="+noTif+" mask=None threshold=1");
 	dmap = IJ.getImage();
+	images[3] = dmap;
 
 	//Return the array of images
 	return images;
@@ -267,27 +276,17 @@ public static skeletonChecking(image, backup, ArrayList maskImages) {
 	//Create an array of images to store the images we're going to be working with during visualisation
 	ImagePlus[] images = new ImagePlus[5];
 
-	//Create imageplus variables to put in this array for images that we haven't generated yet
-	ImagePlus rawImage;
-	ImagePlus threeDImage;
-	ImagePlus dmap;
-	ImagePlus backup;
-
 	//[0] is the thresholded image (image), [1] is the rawImage (a duplicate of the non thresholded image), [2] is the threeDImage (a 3D visualisation of the 
 	//skeleton overlaid on the non threhsolded image), [3] is the distance map, and [4] is the non thresholded image
 	images[0] = image;
-	images[1] = rawImage;
-	images[2] = threeDImage;
-	images[3] = dmap;
 	images[4] = backup;
 
 	//Run the visualisation
 	images = visualiseSkel(images);
 
-	//Show all the images except the backup
-	for(i=0; i<images.length-1; i++) {
-		images[i].show();
-	}
+	rawImage = images[1];
+	threeDImage = images[2];
+	dmap = images[3];
 
 	//Check if the user is happy with the skeleton
 	skeletonFirstCheck = dialogUserApproval("Skeleton and DMap Satisfactory?", "Happy with the images?");
@@ -297,7 +296,7 @@ public static skeletonChecking(image, backup, ArrayList maskImages) {
 
 		//Close all images except the 
 		for(i=0; i<images.length; i++) {
-			if(i!=0 || i!=3) {
+			if(i!=0 || i!=1 || i!=4) {
 			images[1].close();
 			}
 		}
@@ -310,23 +309,20 @@ public static skeletonChecking(image, backup, ArrayList maskImages) {
 		//choiceMade is whether we've made a choice re: the final outcome of the skeleton after editing, set to false initially
 		choiceMade = false;
 
+		//Close all images except the 
+		for(i=0; i<images.length; i++) {
+			if(i!=1 || i!=4) {
+			images[1].close();
+			}
+		}
+
 		//Whilst we haven't made a final choice, we enter this condition
 		while(choiceMade == false) {
 
 			//Show the skeleton
 			image.show();
-
-			//If the 3D skeleton isn't open already (will be open during first run, but not during subsequent loops) then run the 3D projeciton of it and
-			//reassign the variables to it
-			if(WindowManager.getWindow(threeDImage.getTitle())==null) {
 		
-				images = visualiseSkel(images);
-
-				for(i=0; i<images.length-1; i++) {
-					images[i].show();
-				}
-				
-			}
+			images = visualiseSkel(images);
 
 			//Here we create a dialog box with the following options seen in the string array
 			String [] skeletonEditChoices = {"Remove parts of the skeleton", "Proceed with skeleton as is", "Return to the non-skeletonised image to make changes"};
@@ -365,6 +361,8 @@ public static skeletonChecking(image, backup, ArrayList maskImages) {
 					image = replaceWithBackup(image, skelEditBackup);
 				}
 
+			}
+
 				//If the user is happy with the skeleton, skelgood = 1 and we close the non-thresholded backup
 				if(skelEdit==1) {
 					skelGood = 1;
@@ -381,7 +379,6 @@ public static skeletonChecking(image, backup, ArrayList maskImages) {
 	
 			}
 
-		}
 	}
 
 	//ArrayList to save the choices the user makes
@@ -736,7 +733,7 @@ if(choices[0] == true) {
 						
 						//Get out the ini variables using the associated ini file
 						iniVariables = getIniData(iniCheck);
-						//[0] is FperZ, [1] is xSize, [2] is ySize, [3] is zSize
+						//[0] is xSize, [1] is ySize, [2] is zSize, [3] is FperZ
 	
 						//Set the iniCheck variable to the biggest it could be so we exit the loop
 						iniCheck = parentFiles[parentFiles.length-1];
@@ -758,8 +755,7 @@ if(choices[0] == true) {
 				IJ.log("Group Z Projecting image");
 				
 				//We show the image before group Z projecting it and then closing it
-				imp.show();
-				IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+(int) iniVariables[0]+"");
+				IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+(int) iniVariables[3]+"");
 				imp.close();
 					
 				//Here we get the averaged image and set it as avg and retrieve the image with the avg name
@@ -779,8 +775,8 @@ if(choices[0] == true) {
 				IJ.log("Calibrating image with ini values");
 				
 				//Calibrate the average image according to the values taken from the ini file
-				IJ.run(avg, "Properties...", "channels="+avgDimensions[2]+" slices="+avgDimensions[3]+" frames="+avgDimensions[4]+" unit=µm pixel_width="+iniVariables[1]+" pixel_height="+iniVariables[2]+" voxel_depth="+iniVariables[3]+"");
-	
+				IJ.run(avg, "Properties...", "channels="+avgDimensions[2]+" slices="+avgDimensions[3]+" frames="+avgDimensions[4]+" unit=µm pixel_width="+iniVariables[0]+" pixel_height="+iniVariables[1]+" voxel_depth="+iniVariables[2]+"");
+				
 				IJ.saveAsTiff(avg, parentDir + "/preprocessed.tif");
 				avg.close();
 	
@@ -807,6 +803,13 @@ if(choices[1] == true) {
 	
 			//If the thresholding isn't done but preprocessing has been done
 			if(stagesDone[0] == true && stagesDone[1] == false) {
+				
+				//Here we get the parent directory that our wideFOV ch2 image is in and find its associated ini file
+				File parentDirFile = file.getParentFile(); //File form to be used in making array of files from this directory
+				String parentDir = file.getParent(); //String form for use in saving images
+	
+				//This is a list of all the files in the parent directory
+				File[] parentFiles = parentDirFile.listFiles();
 	
 				//We loop through the files in the parent directory and if any of them are an ini file
 				for(File iniCheck:parentFiles) {
@@ -814,7 +817,7 @@ if(choices[1] == true) {
 						
 						//Get out the ini variables using the associated ini file
 						iniVariables = getIniData(iniCheck);
-						//[0] is FperZ, [1] is xSize, [2] is ySize, [3] is zSize
+						//[0] is xSize, [1] is ySize, [2] is zSize, [3] is FperZ
 	
 						//Set the iniCheck variable to the biggest it could be so we exit the loop
 						iniCheck = parentFiles[parentFiles.length-1];
@@ -900,7 +903,7 @@ if(choices[1] == true) {
 						userInputs.showDialog();
 				
 						//Get pixel sizes
-						for(choices=0; choices<pixelSizeArray.length; choices++) {
+						for(pxls=0; pxls<pixelSizeArray.length; pxls++) {
 							pixelSizeChoices.add(userInputs.getNextNumber());
 						}
 				
@@ -923,6 +926,11 @@ if(choices[1] == true) {
 						if(smoothFirstCheck == true) {
 							backup.close();
 							IJ.log("Image smoothed using: " + smoothingArray[smoothingMethod]);
+							if(despeckleMethod == 1) {
+								IJ.log("Image despeckled after smoothing");
+							} else if (despeckleMethod == 0) {
+								IJ.log("Image despeckled before smoothing");
+							}
 							IJ.log("Pixel sizes used: " + " x:" + pixelSizeChoices.get(0) + " y:" + pixelSizeChoices.get(1) + " z:" + pixelSizeChoices.get(2));
 						} else {
 							avg = replaceWithBackup(avg, backup);
@@ -954,9 +962,6 @@ if(choices[1] == true) {
 	
 								IJ.log("Proceeding with threshold: " + threshNames[(autoThreshFinal-1)]);
 								
-								//Here we backup the thresholded image
-								thresholdedImage = avg.duplicate();
-				
 								//Here we check the skeleton and edit it if the user wants to
 								skelCheckOutput = skeletonChecking(avg, backup, maskImages);
 				
@@ -972,7 +977,7 @@ if(choices[1] == true) {
 									backup.changes=true;
 									IJ.saveAsTiff(backup, parentDir + "/nonthresholdedimage.tif");
 									backup.close();
-									dmap = WindowManager.getWindow("EDT");
+									dmap = WindowManager.getImage("EDT");
 									dmap.changes = true;
 									IJ.saveAsTiff(dmap, parentDir + "/dmap.tif");
 									IJ.log("Saved non thresholded and distance map images");
@@ -1021,7 +1026,7 @@ if(choices[1] == true) {
 								backup.changes=true;
 								IJ.saveAsTiff(backup, parentDir + "/nonthresholdedimage.tif");
 								backup.close();
-								dmap = WindowManager.getWindow("EDT");
+								dmap = WindowManager.getImage("EDT");
 								dmap.changes = true;
 								IJ.saveAsTiff(dmap, parentDir + "/dmap.tif");
 								IJ.log("Approved skeleton and distance map");
@@ -1159,7 +1164,7 @@ if(choices[1] == true) {
 					avgDimensions = avg.getDimensions();
 	
 					//Calibrate the parsed image
-					IJ.run(parsedImage, "Properties...", "channels="+avgDimensions[2]+" slices="+avgDimensions[3]+" frames="+avgDimensions[4]+" unit=µm pixel_width="+iniVariables[1]+" pixel_height="+iniVariables[2]+" voxel_depth="+iniVariables[3]+"");
+					IJ.run(parsedImage, "Properties...", "channels="+avgDimensions[2]+" slices="+avgDimensions[3]+" frames="+avgDimensions[4]+" unit=µm pixel_width="+iniVariables[0]+" pixel_height="+iniVariables[1]+" voxel_depth="+iniVariables[2]+"");
 	
 					//Save changes to the parsed image, and close it
 					parsedImage.changes = true;
@@ -1592,8 +1597,8 @@ if(choices[2] == true) {
 				rt.save(parentDir+"/3D Coords.xls");
 				
 				//Putting this bit any earlier seems to mess with analyze skeleton..so be careful with it
-				if( WindowManager.getWindow("Tagged skeleton") != null) {
-					WindowManager.getWindow("Tagged skeleton").dispose();
+				if( WindowManager.getImage("Tagged skeleton") != null) {
+					WindowManager.getImage("Tagged skeleton").close();
 				}
 	
 				dmap.changes = false;
