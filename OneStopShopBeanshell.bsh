@@ -441,7 +441,7 @@ public static lookingForSomething(File [] parentFiles, boolean toAlter, String t
 		//We lowercase the toCheck and the filepath to avoid any case sensitivity to checking
 		//If they match, we print the name that matches and set the toAlter variable to 1 and break after finding the first file
 		if(statusCheck.getAbsolutePath().toLowerCase().contains(toCheck.toLowerCase()) == true) {
-			IJ.log(statusCheck.getName());
+			//IJ.log(statusCheck.getName());
 			toAlter = true;
 			break;
 		}
@@ -744,7 +744,7 @@ if(choices[0] == true) {
 	for (File file:output) {
 		
 		//If the file is ch_2, then we get the stages done i.e. whether we've done preprocessing, threhsolding, or skeleton analysis
-		if(file.getAbsolutePath().contains(channels[channelChoice]) == true) {
+		if(file.getAbsolutePath().contains(channels[channelChoice]) == true && file.getParent().toLowerCase().contains(toFind) == true) {
 	
 			IJ.log("Checking analysis status of " + file.getAbsolutePath());
 			stagesDone = checkImageStatus(file, stagesDone);
