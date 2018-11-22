@@ -1,0 +1,245 @@
+import ij.IJ;
+import ij.measure.Calibration;
+import ij.plugin.Duplicator;
+import ij.WindowManager;
+import ij.gui.WaitForUserDialog;//Import to allow us to wait for user input
+import ij.gui.NonBlockingGenericDialog; //Import to allow us to create non blocking dialogs
+import ij.plugin.frame.RoiManager;
+import ij.gui.Roi;
+import ij.plugin.ImageCalculator;
+import ij.measure.ResultsTable;
+
+//Function to try all the autoThresh options and get user input after making a small substack of the input image
+public static autoThreshTryAll(avg) {
+
+	impDim = imp.getDimensions();
+	lowerLim = (impDim[3]*0.40).intValue();
+	upperLim = (impDim[3]*0.55).intValue();
+			
+	//Here we create a 5 slice substack of our smoothed, cleaned image, so that we can try out the auto thresholds on it
+	threshTest = new Duplicator().run(avg, lowerLim, upperLim);
+
+	//This runs the try all action for the auto threshold method
+	IJ.run(threshTest, "Auto Threshold", "method=[Try all] white stack");
+	threshStack = WindowManager.getImage("Stack");
+
+	//These string arrays are for choosing which thresholding method to use
+	//Each index in threshChoice corresponds to the method in threshNames
+	String [] threshChoice =  {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"};
+			
+	//Create a non-blocking dialog so the user can still check the image whilst choosing
+	//Ask the user which threshold option worked best, and also whether none of them are good
+	NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Auto Threshold Choice");
+	userInputs.addChoice("Which panel worked the best?", threshChoice, "1");
+	userInputs.addCheckbox("Tick if you're not happy with any of the options", false);
+			
+	userInputs.showDialog();
+	
+	//Close the stack of threshold test
+	threshStack.close();
+
+	//Close the threshTest image
+	threshTest.close();
+
+	//Get the choices from the dialog box and the associted thresholding method
+	int choice = userInputs.getNextChoiceIndex()+1;
+
+	//Get whether the user is happy with the threshold options 
+	goodThreshChoice = userInputs.getCheckboxes().get(0).getState();	
+
+	//If the user isn't happy with any of the choices, set the threshold selected to 0
+	if(goodThreshChoice == true) {
+		choice = 0;
+	}
+		
+	//Return the thresh selected
+	return choice;
+			
+}
+
+imp = IJ.getImage(); //Get the open and active image
+OldIB4Image = WindowManager.getImage("IB4"); //Get the IB4 image
+
+//Get the calibration of the images
+impCal = imp.getCalibration();
+IB4Cal = OldIB4Image.getCalibration();
+
+//If not calibrated in microns, ask the user to calibrate it
+while (!impCal.getUnit().equals("micron") || !IB4Cal.getUnit().equals("micron")) {
+	new WaitForUserDialog("Image Calibration", "Calibrate the vessel and IB4 images in microns").show();
+}
+
+//Run stack contrast adjustment on the image, calibrate the newly contrasted image
+IJ.run(imp, "Stack Contrast Adjustment", "is");
+newImp = IJ.getImage();
+newImp.setCalibration(impCal);
+	
+//Despeckle and median filter the image
+IJ.run(newImp, "Despeckle", "stack");
+IJ.run(newImp, "Median 3D...", "x=1 y=1 z=2");
+
+//Run stack contrast adjustment on the image, calibrate the newly contrasted image
+IJ.run(OldIB4Image, "Stack Contrast Adjustment", "is");
+IB4Image = IJ.getImage();
+IB4Image.setCalibration(IB4Cal);
+	
+//Despeckle and median filter the image
+IJ.run(IB4Image, "Despeckle", "stack");
+IJ.run(IB4Image, "Median 3D...", "x=1 y=1 z=2");
+
+//While the user isn't happy with the threshold, run auto thresholds for the user to choose from
+threshHappy = false;
+while(threshHappy == false) {
+
+	//Ask the user to pick a threshold
+	
+	//autoThreshFinal = autoThreshTryAll(newImp);
+
+	autoThreshFinal=12;
+
+	//If the user is happy with the threshold
+	if(autoThreshFinal != 0) {
+		String [] threshNames = {"Default", "Huang", "Huang2", "Intermodes", "IsoData", "Li", "MaxEntropy", "Mean", "MinError(I)", "Minimum", "Moments", "Otsu", "Percentile", "RenyiEntropy", "Shanbhag", "Triangle"};
+
+		//Create a backup of the image before thresholding the whole thing then creating a composite overlay of the threshold
+		//with the raw image to get the user feedback on thresholding quality
+		backup=newImp.duplicate();
+		backup.show();
+		IJ.run(newImp, "Auto Threshold", "method=["+threshNames[(autoThreshFinal-1)]+"] white stack");
+		IJ.run(newImp, "Red", "");
+		IJ.run(backup, "Green", "");
+		IJ.run(newImp, "Merge Channels...", "c1=["+newImp.getTitle()+"] c2=["+backup.getTitle()+"] create keep");
+		comp = IJ.getImage();
+
+		//This is for auto thresholding the IB4 - need to get user input here I think
+		IJ.run(IB4Image, "Auto Threshold", "method=["+threshNames[(autoThreshFinal-1)]+"] white stack");
+
+		//Ask if the user is happy with threhsolding
+		NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Threshold Check");
+		userInputs.addCheckbox("Happy with the thresholding?", false);
+				
+		userInputs.showDialog();
+	
+		goodThreshChoice = userInputs.getCheckboxes().get(0).getState();
+
+		comp.close();
+	
+		//If they're not happy, close the thresholded image, set the backup to the newImp variable, and keep threshHappy as false and
+		//run again
+		if(goodThreshChoice == false) {
+			newImp.close();
+			newImp = backup;	
+	
+		//If they are happy
+		} else {
+
+			backup.close();
+			
+			//Calibrate the thresholded image before duplicating it so we can use the new images to generate skeletons and distance maps
+			newImp.setCalibration(impCal);
+			newImp.setTitle("Thresholded");
+
+			skeleton=newImp.duplicate();
+			dmapPre=newImp.duplicate();
+
+			//Rename the images, show the image to create the distance map from
+			skeleton.setTitle("Skel");
+			dmapPre.setTitle("DmapPre");
+			dmapPre.show();
+
+			//Generate the distance map
+			IJ.run("3D Distance Map", "map=EDT image="+dmapPre.getTitle()+" mask=None threshold=1");
+			dmap=IJ.getImage();
+			dmap.setTitle("dmap");
+
+			//Close the image used to generate it
+			dmapPre.changes = false;
+			dmapPre.close();
+
+			//Skeletonise the image
+			IJ.run(skeleton, "Skeletonize (2D/3D)", "");
+
+			//Use the 3D manager (within a macro as commands don't work otherwise) to segment our vessels and get out the number of objects in the picture
+			output = IJ.runMacro("run(\"3D Manager\"); selectWindow(\"Thresholded\"); Ext.Manager3D_Segment(1,255); Ext.Manager3D_AddImage(); Ext.Manager3D_Count(nb_obj); Ext.Manager3D_Close(); textForm = toString(nb_obj); return textForm;");
+			nbObj = Integer.valueOf(output);
+			segmentedImage = WindowManager.getImage("Thresholded-3Dseg");
+
+			//Create a new results table to store our info
+			customRT = new ResultsTable();
+
+			//Loop through our objects
+			for (i=0; i<nbObj; i++) {
+
+				//Get out each part of the segmented image, find where the current section overlaps with the skeleton
+				//to get its skeleton bit
+				segmentedImage.show();
+				IJ.run(segmentedImage, "Select Label(s)", "label(s)="+(i+1)+"");
+				labelImage = IJ.getImage();
+				ImageCalculator ic = new ImageCalculator();
+				imp3 = ic.run("AND create stack", skeleton, labelImage);
+				imp3.show();
+				imp3.setTitle("Result");
+				skeleton.hide();
+				labelImage.hide();
+
+				//Use the skeleton of it to read out the radius of the section in our distance map
+				output = IJ.runMacro("setBatchMode(true); saveDir = File.directory + File.separator + \"Roi.zip\"; print(saveDir); run(\"3D Manager\"); selectWindow(\"Result\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Save(saveDir); Ext.Manager3D_Close(); run(\"3D Manager\"); Ext.Manager3D_Load(saveDir);  selectWindow(\"dmap\"); Ext.Manager3D_Quantif3D(0, \"Mean\", quantif); Ext.Manager3D_Close(); textForm = toString(quantif); return textForm;");
+				meanValue = Double.valueOf(output);
+
+				//Get out the volume in pixels of the skeleton (length)
+				output = IJ.runMacro("setBatchMode(true); saveDir = File.directory + File.separator + \"Roi.zip\"; run(\"3D Manager\"); Ext.Manager3D_Load(saveDir); Ext.Manager3D_Measure3D(0, \"Vol\", vol); asString = toString(vol); print(asString); Ext.Manager3D_Close(); return asString;");
+				length = Double.valueOf(output);
+
+				//Close the result image
+				imp3.close();
+
+				//Create an enlarged image that is enlarged by 2 microns around the segment so we can use this as a ROI to look for our isolectin staining
+				enlargedImage=labelImage.duplicate();
+				IJ.run(enlargedImage, "Maximum 3D...", "x="+impCal.getRawX(2.0)+" y="+impCal.getRawY(2.0)+" z="+impCal.getRawZ(2.0)+"");
+				labelImage.show();
+				diffImage = ic.run("Difference create stack", enlargedImage, labelImage);
+				diffImage.show();
+				diffImage.setTitle("Diff");
+
+				//Use this image to get out to the volume that we're checking for overlap within
+				output = IJ.runMacro("setBatchMode(true); run(\"3D Manager\"); selectWindow(\"Diff\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Measure3D(0, \"Vol\", measure); Ext.Manager3D_Close(); asString = toString(measure); return asString;");
+				volumeChecking = Double.valueOf(output);
+
+				enlargedImage.close();
+				labelImage.close();
+
+				//Calculate the isolectin staining that is within our ROI to check
+				ImageCalculator ic = new ImageCalculator();
+				IB4Overlap = ic.run("AND create stack", IB4Image, diffImage);
+				IB4Overlap.show();
+				IB4Overlap.setTitle("IB4Overlap");
+
+				//Use the 3D manager to get out the volume within this ROI
+				output = IJ.runMacro("setBatchMode(true); selectWindow(\"IB4Overlap\"); run(\"Auto Threshold\", \"method=Default white stack\"); run(\"Z Project...\", \"projection=[Max Intensity]\"); selectWindow(\"MAX_IB4Overlap\"); run(\"Invert\", \"stack\");  run(\"Create Selection\"); print(\"Selection\" + selectionType()); if(selectionType() == -1) { run(\"Select None\"); asString = \"0\"; run(\"Invert\", \"stack\"); selectWindow(\"MAX_IB4Overlap\"); run(\"Close\"); return asString; } else {  selectWindow(\"MAX_IB4Overlap\"); run(\"Close\"); selectWindow(\"IB4Overlap\"); run(\"Select None\"); run(\"3D Manager\"); Ext.Manager3D_AddImage();  Ext.Manager3D_Measure3D(0, \"Vol\", measure); Ext.Manager3D_Close(); asString = toString(measure); return asString;");
+				overlappingVolume = Double.valueOf(output);
+
+				IB4Overlap.changes=false;
+				IB4Overlap.close();
+				diffImage.close();
+				
+				//Fill our results table with the values of interest
+				customRT.setValue("Radii", i, meanValue);
+				customRT.setValue("Length", i, length);
+				customRT.setValue("Volume Around", i, volumeChecking);
+				customRT.setValue("Volume Occupied", i, overlappingVolume);
+				customRT.setValue("Percentage Occupied", i, overlappingVolume/volumeChecking);
+
+				customRT.show("Testing");
+
+				//Next up is to get example iamges and data structure from laura to adapt this then section it into preprocessing
+				//and then user required activity
+				
+			}
+
+			System.exit();
+
+		}
+	}
+}	
+			
+		
