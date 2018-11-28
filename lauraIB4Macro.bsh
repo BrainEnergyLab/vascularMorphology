@@ -152,15 +152,18 @@ public static dialogUserApproval(String dialogTitle, String dialogText) {
  
 }
 
-
-
 public static imageEditingFunction(vesselImageProc) {
+
+  //Should add a section here where you can abort the whole thing because if the images aren't good enough for the analysis..
+  //Maybe a bit where you can play around with the image yourself?
 
  //Create a backup of the input image that we can revert to during image processing if we want a clean slate
  babyFresh = vesselImageProc.duplicate();
 
  //This variable is true as long as we want to keep editing our image
  editImage = true;
+
+ forAnalysis = false;
 
  //While we want to keep editing
  while (editImage == true) {
@@ -179,7 +182,9 @@ public static imageEditingFunction(vesselImageProc) {
    "Manually threshold the image",
    "Try an automated thresholding technique",
    "Smooth the image",
-   "Despeckle the image"
+   "Despeckle the image",
+   "Play around with the image",
+   "Abandon this image - move onto the next"
   };
 
   //Add a section here to play around with the image yourself
@@ -191,8 +196,42 @@ public static imageEditingFunction(vesselImageProc) {
 
   int choice = userInputs.getNextChoiceIndex();
 
+  if(forAnalysis == false) {
+  	IJ.log("False");
+  } else {
+  	IJ.log("True");
+  }
+
+  if (choice ==6) {
+  	IJ.run(vesselImageProc, "Close All", "");
+  	editImage = false;
+	forAnalysis = false;
+  } else if (choice == 5) {
+  	
+  	backup = vesselImageProc.duplicate();
+  	backup.hide();
+  	
+  	NonBlockingGenericDialog freePlay = new NonBlockingGenericDialog("Freeplay Processing");
+  	freePlay.addMessage("Process the image as you see fit");
+  	freePlay.addMessage("If you wish to proceed with your processed, thresholded image, rename it \"Processed\"");
+  	freePlay.addMessage("Else, leave it named as something else and close all windows except the image");
+  	freePlay.addMessage("Press ok when done");
+  	freePlay.showDialog();
+  	
+ 	processedImage = WindowManager.getImage("Processed");
+
+ 	if(processedImage==null) {
+ 		backup.show();
+ 		vesselImageProc = replaceWithBackup(vesselImageProc, backup);
+ 	} else {
+ 		backup.close();
+ 		vesselImageProc = processedImage;
+ 		editImage = false;
+	 	forAnalysis = true;
+ 	}
+
   //If the user wants to despeckle the image
-  if (choice == 4) {
+  } else if (choice == 4) {
 
    //We backup the image, run the despeckle
    backup = vesselImageProc.duplicate();
@@ -330,6 +369,8 @@ public static imageEditingFunction(vesselImageProc) {
 
      IJ.log("Proceeding with threshold: " + threshNames[(autoThreshFinal - 1)]);
      editImage = false;
+	 forAnalysis = true;
+	 backup.close();
 
      //If the user wasn't happy with thresholding the whole stack, replace the thresholded image with the backup
     } else {
@@ -353,7 +394,8 @@ public static imageEditingFunction(vesselImageProc) {
    if (manualHappy == true) {
 
     editImage = false;
-
+    forAnalysis = true;
+    backup.close();
 
     //If the user wasn't happy with manual thresholding initially, replace the thresholded image with the backup
    } else {
@@ -371,7 +413,11 @@ public static imageEditingFunction(vesselImageProc) {
 
  }
 
- return vesselImageProc;
+ ArrayList outputs = new ArrayList();
+ outputs.add(vesselImageProc);
+ outputs.add(forAnalysis);
+
+ return outputs;
 
 }
 
@@ -420,7 +466,7 @@ for (i = 0; i < folderList.length; i++) {
   for (j = 0; j < imagesRaw.length; j++) {
 
    //If the image doesn't contain zproject or lif in its name
-   if (!imagesRaw[j].contains("zproject") || !imagesRaw[j].contains("lif")) {
+   if (!imagesRaw[j].contains("zproject") && !imagesRaw[j].contains("lif")) {
 
     //Print the image name, open it, get its calibration, and if it hasn't been calibrated, ask the user to do so
     String imagePath = fullString + "/" + imagesRaw[j];
@@ -465,11 +511,23 @@ for (i = 0; i < folderList.length; i++) {
     vesselImageProc = images[0];
     isoImageProc = images[1];
 
-    //Should add a section here where you can abort the whole thing because if the images aren't good enough for the analysis..
-    //Maybe a bit where you can play around with the image yourself?
+    vesselImageOutput = imageEditingFunction(vesselImageProc);
 
-    vesselImageProc = imageEditingFunction(vesselImageProc);
-    isoImageProc = imageEditingFunction(isoImageProc);
+    vesselImageProc = vesselImageOutput.get(0);
+
+	if(vesselImageOutput.get(1) == false) {
+		IJ.run(vesselImageProc, "Close All", "");
+		continue;
+	}
+    
+    isoImageOutput = imageEditingFunction(isoImageProc);
+
+	isoImageProc = isoImageOutput.get(0);
+
+    if(isoImageOutput.get(1) == false) {
+    	IJ.run(isoImageProc, "Close All", "");
+    	continue;
+    }
 
     //Calibrate the thresholded image before duplicating it so we can use the new images to generate skeletons and distance maps
     vesselImageProc.setTitle("Thresholded");
