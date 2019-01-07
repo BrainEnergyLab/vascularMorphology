@@ -430,32 +430,19 @@ public static imageEditingFunction(vesselImageProc) {
 //Ask the user to select the directory where the isolectin images to be analysed are
 DirectoryChooser userDir = new DirectoryChooser("Select The Isolectin Directory");
 
-//Create a tring to store a choice of channels
-String[] channelSelection = {
- "1",
- "2",
- "3",
- "4"
-};
-
-//Ask the user to choose which channels represent the vessels and isolectin staining
-GenericDialog userInput = new GenericDialog("Channel Selection");
-userInput.addChoice("Which channel are the vessels in?", channelSelection, "1");
-userInput.addChoice("Which channel is Isolectin in?", channelSelection, "2");
-userInput.showDialog();
-
 //Get the isolectin directory and its contained files/folders
 String dirString = userDir.getDirectory();
 File dir = new File(dirString);
 String[] folderList = dir.list();
 
-//Get channels chosen by the user
-int[] channelNumbs = new int[2];
-//[0] is vesselChannel, [1] is isoChannel
+//Ask the user to select which function to use, where 0 is process and thresholding, and 1 is analyzing
+String[] selection = new String[] {"Process and threshold images", "Automatically analyze images"};
 
-for (i = 0; i < 2; i++) {
- channelNumbs[i] = userInput.getNextChoiceIndex() + 1;
-}
+GenericDialog userInput = new GenericDialog("Function Selection");
+userInput.addChoice("Test", selection, "Process and threshold images");
+userInput.showDialog();
+
+int functionChoice = userInput.getNextChoiceIndex();
 
 //Looping through the isolectin directory files/folders
 for (i = 0; i < folderList.length; i++) {
@@ -464,265 +451,308 @@ for (i = 0; i < folderList.length; i++) {
  String fullString = dirString.concat(folderList[i]);
  File currFile = new File(fullString);
 
- //If this is a directory and if it contains an M then get the list of files in that folder
+ //If this is a directory and if it contains an M then...
  if (currFile.isDirectory() == true && folderList[i].contains("M")) {
-  String[] imagesRaw = currFile.list();
 
-  //Looping through those files
-  for (j = 0; j < imagesRaw.length; j++) {
+   //... get the list of files in that folder
+   String[] imagesRaw = currFile.list();
 
-   //Create a variable where we store the directory to check if the image has already been processed
-   File processed = fullString + "/" + "Processed/" + imagesRaw[j] + "/";
-   
-   //If the image doesn't contain zproject or lif in its name and it hasn't been processed						//Need to add a condition here for user choice over whether to threshold or process images - same for later too
-   if (!imagesRaw[j].contains("zproject") && !imagesRaw[j].contains("lif") && !File.exists(processed)) {
+  //If the user has chosen to threshold the images
+  if(functionChoice == 0) {
 
-    //Print the image name, open it, get its calibration, and if it hasn't been calibrated, ask the user to do so
-    String imagePath = fullString + "/" + imagesRaw[j];
-    raw = IJ.openImage(imagePath);
-    Calibration rawCal = raw.getCalibration();
-    while (!rawCal.getUnit().equals("micron")) {
-     new WaitForUserDialog("Image Calibration", "Calibrate the image in microns").show();
-    }
-
-    //Get out the number of slices we'd need for a 40um thick substack of the tissue, as well as the number
-    //of slices in the image, then calculate the substack we need to make to take out the middle 40um of the image
-    double slicesToGrab = rawCal.getRawZ(40);
-    double rawSlices = (double) raw.getNSlices();
-    double beginningPoint = Math.floor((rawSlices - slicesToGrab) / 2);
-
-    //Create a substack based on those numbers and close the raw image
-    cutDown = new Duplicator().run(raw, 1, raw.getNChannels(), (int) beginningPoint, (int)(rawSlices - beginningPoint), 1, 1);
-    raw.close();
-
-    //Create arrays to store the image stacks of the split channels and then the imageplus objects we make from the stacks,
-    //as well as the titles we want to stick onto our imageplus objects
-    ImageStack[] imageStacks = new ImageStack[2];
-    ImagePlus[] images = new ImagePlus[2];
-    //[0] is vesselImage, [1] is isoImage
-    String[] titles = new String[] {
-     "Vessels",
-     "Iso"
-    };
-
-    //Create an imageplus array to store our processed imageplus objects
-    ImagePlus[] procImages = new ImagePlus[2];
-
-    for (k = 0; k < 2; k++) {
-     imageStacks[k] = new ChannelSplitter().getChannel(cutDown, channelNumbs[k]);
-     images[k] = new ImagePlus(titles[k], imageStacks[k]);
-     
-    }
-
-	//Close our original cutDown image
-    cutDown.close();
-
-    //Assign variable names to the processed images
-    vesselImageProc = images[0];
-    isoImageProc = images[1];
-
-	//Run the imageEditingFunction on our vessel image, and get out whether it was successful or not
-    vesselImageOutput = imageEditingFunction(vesselImageProc);
-
-	//If it wasn't successful, close all the images, create the processed directory (so that we know we've processed this image)
-	//and move onto the next image
-	if(vesselImageOutput.get(1) == false) {
-		IJ.run(vesselImageProc, "Close All", "");
-    	processed.mkdirs();
-		continue;
+	//Create a string to store a choice of channels
+	String[] channelSelection = {
+	 "1",
+	 "2",
+	 "3",
+	 "4"
+	};
+	
+	//Ask the user to choose which channels represent the vessels and isolectin staining
+	GenericDialog userInput = new GenericDialog("Channel Selection");
+	userInput.addChoice("Which channel are the vessels in?", channelSelection, "1");
+	userInput.addChoice("Which channel is Isolectin in?", channelSelection, "2");
+	userInput.showDialog();
+	
+	//Get channels chosen by the user
+	int[] channelNumbs = new int[2];
+	//[0] is vesselChannel, [1] is isoChannel
+	
+	for (i = 0; i < 2; i++) {
+	 channelNumbs[i] = userInput.getNextChoiceIndex() + 1;
 	}
 
-	//If it was successful, get the image it generated
-	vesselImageProc = vesselImageOutput.get(0);
-
-    //Run the imageEditingFunction on our iso image, and get out whether it was successful or not
-    isoImageOutput = imageEditingFunction(isoImageProc);
-
-	//If it wasn't successful, close all the images, create the processed directory (so that we know we've processed this image)
-	//and move onto the next image
-    if(isoImageOutput.get(1) == false) {
-    	IJ.run(isoImageProc, "Close All", "");
-    	processed.mkdirs();
-    	continue;
-    }
-
-	//If it was successful, get the image it generated
-    isoImageProc = isoImageOutput.get(0);
-
-	//Create a FileSaver object to save our processed images with the names in the saveName string array
-	FileSaver[] imageSave = new FileSaver[] { vesselImageProc, isoImageProc};
-	String[] saveName = new String[] {"Processed Vessels", "Processed Iso"};
-
-	//Create the directory where we will save our processed images
-	processed.mkdirs();
-
-	//Save our images in the processed directory
-    for(k=0; k<imageSave.length; k++) {
-    	imageSave[k].saveAsTiff(processed.getPath() + saveName[k]);
-    }
-
-	//Close all images before proceeding to the next image in the directory
-    IJ.run(vesselImageProc, "Close All", "");
-
-   }
-  }
-
-  //Loop through all the images in the folder again
-  for(j=0; j<imagesRaw.length; j++) {
-  	
-    //Create a variable where we store the directory to check if the image has actually been processed
-    File processed = fullString + "/" + "Processed/" + imagesRaw[j] + "/Processed Vessels.tif"
-
-	//If the file has been processed
-	if(File.exists(processed)) {
+	  //Looping through those files
+	  for (j = 0; j < imagesRaw.length; j++) {
 	
-	 //Open the vessel and iso images
-     vesselImageProc = IJ.openImage(processed.getPath() + ".tif");
-     isoImageProc = IJ.openImage(processed.getParent() + "/Processed Iso.tif");
+	   //Create a variable where we store the directory to check if the image has already been processed
+	   File processed = new File(fullString + "/" + "Processed/" + imagesRaw[j] + "/");
+	   
+	   //If the image doesn't contain zproject or lif in its name and it hasn't been processed
+	   if (!imagesRaw[j].contains("zproject") && !imagesRaw[j].contains("lif") && !processed.exists()) {
+	
+	    //Print the image name, open it, get its calibration, and if it hasn't been calibrated, ask the user to do so
+	    String imagePath = fullString + "/" + imagesRaw[j];
+	    raw = IJ.openImage(imagePath);
+	    while (!raw.getCalibration().getUnit().equals("micron")) {
+	     new WaitForUserDialog("Image Calibration", "Calibrate the image in microns").show();
+	    }
 
-	 //Create an imageplus array to store duplicates of the vesselImageProc object, and a string array to store the
-	 //names we'll call these duplicates
-     ImagePlus[] duplicates = new ImagePlus[2];
-     String[] titles = new String[] {
-      "Skel",
-      "DmapPre"
-     };
+	    Calibration rawCal = raw.getCalibration();
+	
+	    //Get out the number of slices we'd need for a 40um thick substack of the tissue, as well as the number
+	    //of slices in the image, then calculate the substack we need to make to take out the middle 40um of the image
+	    double slicesToGrab = rawCal.getRawZ(40);
+	    double rawSlices = (double) raw.getNSlices();
+	    double beginningPoint = Math.floor((rawSlices - slicesToGrab) / 2);
+	
+	    //Create a substack based on those numbers and close the raw image
+	    cutDown = new Duplicator().run(raw, 1, raw.getNChannels(), (int) beginningPoint, (int)(rawSlices - beginningPoint), 1, 1);
+	    raw.close();
+	
+	    //Create arrays to store the image stacks of the split channels and then the imageplus objects we make from the stacks,
+	    //as well as the titles we want to stick onto our imageplus objects
+	    ImageStack[] imageStacks = new ImageStack[2];
+	    ImagePlus[] images = new ImagePlus[2];
+	    //[0] is vesselImage, [1] is isoImage
+	    String[] titles = new String[] {
+	     "Vessels",
+	     "Iso"
+	    };
+	
+	    //Create an imageplus array to store our processed imageplus objects
+	    ImagePlus[] procImages = new ImagePlus[2];
+	
+	    for (k = 0; k < 2; k++) {
+	     imageStacks[k] = new ChannelSplitter().getChannel(cutDown, channelNumbs[k]);
+	     images[k] = new ImagePlus(titles[k], imageStacks[k]);
+	     
+	    }
+	
+		//Close our original cutDown image
+	    cutDown.close();
+	
+	    //Assign variable names to the processed images
+	    vesselImageProc = images[0];
+	    isoImageProc = images[1];
+	
+		//Run the imageEditingFunction on our vessel image, and get out whether it was successful or not
+	    vesselImageOutput = imageEditingFunction(vesselImageProc);
+	
+		//If it wasn't successful, close all the images, create the processed directory (so that we know we've processed this image)
+		//and move onto the next image
+		if(vesselImageOutput.get(1) == false) {
+			IJ.run(vesselImageProc, "Close All", "");
+	    	processed.mkdirs();
+			continue;
+		}
+	
+		//If it was successful, get the image it generated
+		vesselImageProc = vesselImageOutput.get(0);
+	
+	    //Run the imageEditingFunction on our iso image, and get out whether it was successful or not
+	    isoImageOutput = imageEditingFunction(isoImageProc);
+	
+		//If it wasn't successful, close all the images, create the processed directory (so that we know we've processed this image)
+		//and move onto the next image
+	    if(isoImageOutput.get(1) == false) {
+	    	IJ.run(isoImageProc, "Close All", "");
+	    	processed.mkdirs();
+	    	continue;
+	    }
+	
+		//If it was successful, get the image it generated
+	    isoImageProc = isoImageOutput.get(0);
 
-	//Duplicate the image and set its titles
-    for (l = 0; l < 2; l++) {
-     duplicates[l] = vesselImageProc.duplicate();
-     duplicates[l].setTitle(titles[l]);
-    }
+	    ImagePlus[] outputImages = new ImagePlus[] {vesselImageProc, isoImageProc};
+	    String[] saveName = new String[] {"Processed Vessels", "Processed Iso"};
+	    	
+		//Create the directory where we will save our processed images
+		processed.mkdirs();
 
-	//Set objects to these duplicates
-	dmapPre = duplicates[1];
-	skeleton = duplicates[0];
+	    for(k=0; k<outputImages.length; k++) {
+	    	outputImages[k].setCalibration(rawCal);
+	    	new FileSaver(outputImages[k]).saveAsTiff(processed.getPath() + "/" + saveName[k]);
+	    }
+	
+		//Close all images before proceeding to the next image in the directory
+	    IJ.run(vesselImageProc, "Close All", "");
+	
+	   }
+	  }
 
-    dmapPre.show();
+	//If the user has chosen to automatically analyze the images
+  	} else if (functionChoice == 1) {
+	  
+	  //Loop through all the images in the folder again
+	  for(j=0; j<imagesRaw.length; j++) {
+	  	
+	    //Create a variable where we store the directory to check if the image has actually been processed
+	    File processed = new File(fullString + "/" + "Processed/" + imagesRaw[j] + "/Processed Vessels");
+	
+		//If the file has been processed
+		if(processed.exists() && !(new File(processed.getParent() + "/IB4Overlap.xls").exists())) {
+		
+		 //Open the vessel and iso images
+	     vesselImageProc = IJ.openImage(processed.getPath());
+	     isoImageProc = IJ.openImage(processed.getParent() + "/Processed Iso");
 
-    //Generate the distance map
-    IJ.run("3D Distance Map", "map=EDT image=" + dmapPre.getTitle() + " mask=None threshold=1");
-    dmap = IJ.getImage();
-    dmap.setTitle("dmap");
+		 //Rename the thresholded vessels to "Thresholded" so that we can refer to it when using 3d manager
+	     vesselImageProc.setTitle("Thresholded");
 
-    //Close the image used to generate it
-    dmapPre.changes = false;
-    dmapPre.close();
+	     Calibration rawCal = vesselImageProc.getCalibration();
+	
+		 //Create an imageplus array to store duplicates of the vesselImageProc object, and a string array to store the
+		 //names we'll call these duplicates
+	     ImagePlus[] duplicates = new ImagePlus[2];
+	     String[] titles = new String[] {
+	      "Skel",
+	      "DmapPre"
+	     };
+	
+		//Duplicate the image and set its titles
+	    for (l = 0; l < 2; l++) {
+	     duplicates[l] = vesselImageProc.duplicate();
+	     duplicates[l].setTitle(titles[l]);
+	    }
+	
+		//Set objects to these duplicates
+		dmapPre = duplicates[1];
+		skeleton = duplicates[0];
+	
+	    dmapPre.show();
+	
+	    //Generate the distance map
+	    IJ.run("3D Distance Map", "map=EDT image=" + dmapPre.getTitle() + " mask=None threshold=1");
+	    dmap = IJ.getImage();
+	    dmap.setTitle("dmap");
+	
+	    //Close the image used to generate it
+	    dmapPre.changes = false;
+	    dmapPre.close();
+	
+	    //Skeletonise the image
+	    IJ.run(skeleton, "Skeletonize (2D/3D)", "");
+	
+	    IJ.log("Getting out number of objects in the picture");
 
-    //Skeletonise the image
-    IJ.run(skeleton, "Skeletonize (2D/3D)", "");
+	    vesselImageProc.show();
+	
+	    //Use the 3D manager (within a macro as commands don't work otherwise) to segment our vessels and get out the number of objects in the picture
+	    output = IJ.runMacro("run(\"3D Manager\"); selectWindow(\"Thresholded\"); Ext.Manager3D_Segment(1,255); Ext.Manager3D_AddImage(); Ext.Manager3D_Count(nb_obj); Ext.Manager3D_Close(); textForm = toString(nb_obj); return textForm;");
+	    nbObj = Integer.valueOf(output);
+	    segmentedImage = WindowManager.getImage("Thresholded-3Dseg");
+	
+	    IJ.log("Number of objects: " + output);
+	
+	    //Create a new results table to store our info
+	    customRT = new ResultsTable();
+	
+	    //Loop through our objects
+	    for (i = 0; i < nbObj; i++) {
+	
+	     IJ.log("Analysing object number: " + Integer.toString(i));
+	     
+	     //Get out each part of the segmented image, find where the current section overlaps with the skeleton
+	     //to get its skeleton bit
+	     segmentedImage.show();
+	     IJ.run(segmentedImage, "Select Label(s)", "label(s)=" + (i + 1) + "");
+	     labelImage = IJ.getImage();
+	     ImageCalculator ic = new ImageCalculator();
+	     imp3 = ic.run("AND create stack", skeleton, labelImage);
+	     imp3.show();
+	     imp3.setTitle("Result");
+	     skeleton.hide();
+	     labelImage.hide();
+	
+		 IJ.log("Getting radius of object");
+	
+	     //Use the skeleton of it to read out the radius of the section in our distance map
+	     output = IJ.runMacro("setBatchMode(true); saveDir = File.directory + \"Roi.zip\"; print(saveDir); run(\"3D Manager\"); selectWindow(\"Result\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Save(saveDir); Ext.Manager3D_Close(); run(\"3D Manager\"); Ext.Manager3D_Load(saveDir);  selectWindow(\"dmap\"); Ext.Manager3D_Quantif3D(0, \"Mean\", quantif); Ext.Manager3D_Close(); textForm = toString(quantif); return textForm;");
+	     meanValue = Double.valueOf(output);
+	
+	     IJ.log("Radius is " + output);
+	     IJ.log("Getting skeleton length of object");
+	
+	     //Get out the volume in pixels of the skeleton (length)
+	     output = IJ.runMacro("setBatchMode(true); saveDir = File.directory + File.separator + \"Roi.zip\"; run(\"3D Manager\"); Ext.Manager3D_Load(saveDir); Ext.Manager3D_Measure3D(0, \"Vol\", vol); asString = toString(vol); print(asString); Ext.Manager3D_Close(); return asString;");
+	     length = Double.valueOf(output);
+	
+	     IJ.log("Length in pixels is " + output);
+	
+	     //Close the result image
+	     imp3.close();
+	
+	     IJ.log("Enlarging object by 2 microns");
+	
+	     //Create an enlarged image that is enlarged by 2 microns around the segment so we can use this as a ROI to look for our isolectin staining
+	     enlargedImage = labelImage.duplicate();
 
-    IJ.log("Getting out number of objects in the picture");
-
-    //Use the 3D manager (within a macro as commands don't work otherwise) to segment our vessels and get out the number of objects in the picture
-    output = IJ.runMacro("run(\"3D Manager\"); selectWindow(\"Thresholded\"); Ext.Manager3D_Segment(1,255); Ext.Manager3D_AddImage(); Ext.Manager3D_Count(nb_obj); Ext.Manager3D_Close(); textForm = toString(nb_obj); return textForm;");
-    nbObj = Integer.valueOf(output);
-    segmentedImage = WindowManager.getImage("Thresholded-3Dseg");
-
-    IJ.log("Number of objects: " + output);
-
-    //Create a new results table to store our info
-    customRT = new ResultsTable();
-
-    //Loop through our objects
-    for (i = 0; i < nbObj; i++) {
-
-     IJ.log("Analysing object number: " + Integer.toString(i));
-     
-     //Get out each part of the segmented image, find where the current section overlaps with the skeleton
-     //to get its skeleton bit
-     segmentedImage.show();
-     IJ.run(segmentedImage, "Select Label(s)", "label(s)=" + (i + 1) + "");
-     labelImage = IJ.getImage();
-     ImageCalculator ic = new ImageCalculator();
-     imp3 = ic.run("AND create stack", skeleton, labelImage);
-     imp3.show();
-     imp3.setTitle("Result");
-     skeleton.hide();
-     labelImage.hide();
-
-	 IJ.log("Getting radius of object");
-
-     //Use the skeleton of it to read out the radius of the section in our distance map
-     output = IJ.runMacro("setBatchMode(true); saveDir = File.directory + \"Roi.zip\"; print(saveDir); run(\"3D Manager\"); selectWindow(\"Result\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Save(saveDir); Ext.Manager3D_Close(); run(\"3D Manager\"); Ext.Manager3D_Load(saveDir);  selectWindow(\"dmap\"); Ext.Manager3D_Quantif3D(0, \"Mean\", quantif); Ext.Manager3D_Close(); textForm = toString(quantif); return textForm;");
-     meanValue = Double.valueOf(output);
-
-     IJ.log("Radius is " + output);
-     IJ.log("Getting skeleton length of object");
-
-     //Get out the volume in pixels of the skeleton (length)
-     output = IJ.runMacro("setBatchMode(true); saveDir = File.directory + File.separator + \"Roi.zip\"; run(\"3D Manager\"); Ext.Manager3D_Load(saveDir); Ext.Manager3D_Measure3D(0, \"Vol\", vol); asString = toString(vol); print(asString); Ext.Manager3D_Close(); return asString;");
-     length = Double.valueOf(output);
-
-     IJ.log("Length in pixels is " + output);
-
-     //Close the result image
-     imp3.close();
-
-     IJ.log("Enlarging object by 2 microns");
-
-     //Create an enlarged image that is enlarged by 2 microns around the segment so we can use this as a ROI to look for our isolectin staining
-     enlargedImage = labelImage.duplicate();
-     
-     IJ.run(enlargedImage, "Maximum 3D...", "x=" + rawCal.getRawX(2.0) + " y=" + rawCal.getRawY(2.0) + " z=" + rawCal.getRawZ(2.0) + "");
-     labelImage.show();
-	 
-     diffImage = ic.run("Difference create stack", enlargedImage, labelImage);
-     diffImage.show();
-     diffImage.setTitle("Diff");
-
-     IJ.log("Finding volume of enlarged object");
-
-     //Use this image to get out to the volume that we're checking for overlap within
-     output = IJ.runMacro("setBatchMode(true); run(\"3D Manager\"); selectWindow(\"Diff\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Measure3D(0, \"Vol\", measure); Ext.Manager3D_Close(); asString = toString(measure); return asString;");
-     volumeChecking = Double.valueOf(output);
-
-     IJ.log("Volume of enlarged object: " + output);
-
-     enlargedImage.close();
-     labelImage.close();
-
-     IJ.log("Finding pixels from isolectin within our ROI");
-
-     //Calculate the isolectin staining that is within our ROI to check
-     ImageCalculator ic = new ImageCalculator();
-     IB4Overlap = ic.run("AND create stack", isoImageProc, diffImage);
-     IB4Overlap.show();
-     IB4Overlap.setTitle("IB4Overlap");
-
-	 IJ.log("Getting volume of pixels within ROI");
-
-     //Use the 3D manager to get out the volume within this ROI
-     output = IJ.runMacro("setBatchMode(true); selectWindow(\"IB4Overlap\"); run(\"Auto Threshold\", \"method=Default white stack\"); run(\"Z Project...\", \"projection=[Max Intensity]\"); selectWindow(\"MAX_IB4Overlap\"); run(\"Invert\", \"stack\");  run(\"Create Selection\"); print(\"Selection\" + selectionType()); if(selectionType() == -1) { run(\"Select None\"); asString = \"0\"; run(\"Invert\", \"stack\"); selectWindow(\"MAX_IB4Overlap\"); run(\"Close\"); return asString; } else {  selectWindow(\"MAX_IB4Overlap\"); run(\"Close\"); selectWindow(\"IB4Overlap\"); run(\"Select None\"); run(\"3D Manager\"); Ext.Manager3D_AddImage();  Ext.Manager3D_Measure3D(0, \"Vol\", measure); Ext.Manager3D_Close(); asString = toString(measure); return asString;");
-     overlappingVolume = Double.valueOf(output);
-
-     IJ.log("Overlapping pixels: " + output);
-
-     IB4Overlap.changes = false;
-     IB4Overlap.close();
-     diffImage.close();
-
-     //Fill our results table with the values of interest
-     customRT.setValue("Radii", i, meanValue);
-     customRT.setValue("Length", i, length);
-     customRT.setValue("Volume Around", i, volumeChecking);
-     customRT.setValue("Volume Occupied", i, overlappingVolume);
-     customRT.setValue("Percentage Occupied", i, overlappingVolume / volumeChecking);
-
-     customRT.show("Testing");
-
-    }
-
-    //Save as a results table labelled with the same name as our image
-    customRT.save(processed.getParent() + "/IB4Overlap.xls");
-    customRT.reset();
-
-    IJ.log("Results saved");
-
-    //Close all our windows
-    IJ.run(vesselImageProc, "Close All", "");
-
+	     labelImage.show();
+	     new WaitForUserDialog("Check image", "Check image").show();
+	     
+	     IJ.run(enlargedImage, "Maximum 3D...", "x=" + rawCal.getRawX(2.0) + " y=" + rawCal.getRawY(2.0) + " z=" + rawCal.getRawZ(2.0) + "");
+	     labelImage.show();
+		 
+	     diffImage = ic.run("Difference create stack", enlargedImage, labelImage);
+	     diffImage.show();
+	     diffImage.setTitle("Diff");
+	
+	     IJ.log("Finding volume of enlarged object");
+	
+	     //Use this image to get out to the volume that we're checking for overlap within
+	     output = IJ.runMacro("setBatchMode(true); run(\"3D Manager\"); selectWindow(\"Diff\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Measure3D(0, \"Vol\", measure); Ext.Manager3D_Close(); asString = toString(measure); return asString;");
+	     volumeChecking = Double.valueOf(output);
+	
+	     IJ.log("Volume of enlarged object: " + output);
+	
+	     enlargedImage.close();
+	     labelImage.close();
+	
+	     IJ.log("Finding pixels from isolectin within our ROI");
+	
+	     //Calculate the isolectin staining that is within our ROI to check
+	     ImageCalculator ic = new ImageCalculator();
+	     IB4Overlap = ic.run("AND create stack", isoImageProc, diffImage);
+	     IB4Overlap.show();
+	     IB4Overlap.setTitle("IB4Overlap");
+	
+		 IJ.log("Getting volume of pixels within ROI");
+	
+	     //Use the 3D manager to get out the volume within this ROI
+	     output = IJ.runMacro("setBatchMode(true); selectWindow(\"IB4Overlap\"); run(\"Auto Threshold\", \"method=Default white stack\"); run(\"Z Project...\", \"projection=[Max Intensity]\"); selectWindow(\"MAX_IB4Overlap\"); run(\"Invert\", \"stack\");  run(\"Create Selection\"); print(\"Selection\" + selectionType()); if(selectionType() == -1) { run(\"Select None\"); asString = \"0\"; run(\"Invert\", \"stack\"); selectWindow(\"MAX_IB4Overlap\"); run(\"Close\"); return asString; } else {  selectWindow(\"MAX_IB4Overlap\"); run(\"Close\"); selectWindow(\"IB4Overlap\"); run(\"Select None\"); run(\"3D Manager\"); Ext.Manager3D_AddImage();  Ext.Manager3D_Measure3D(0, \"Vol\", measure); Ext.Manager3D_Close(); asString = toString(measure); return asString;");
+	     overlappingVolume = Double.valueOf(output);
+	
+	     IJ.log("Overlapping pixels: " + output);
+	
+	     IB4Overlap.changes = false;
+	     IB4Overlap.close();
+	     diffImage.close();
+	
+	     //Fill our results table with the values of interest
+	     customRT.setValue("Radii", i, meanValue);
+	     customRT.setValue("Length", i, length);
+	     customRT.setValue("Volume Around", i, volumeChecking);
+	     customRT.setValue("Volume Occupied", i, overlappingVolume);
+	     customRT.setValue("Percentage Occupied", i, overlappingVolume / volumeChecking);
+	
+	     customRT.show("Testing");
+	
+	    }
+	
+	    //Save as a results table labelled with the same name as our image
+	    customRT.save(processed.getParent() + "/IB4Overlap.xls");
+	    customRT.reset();
+	
+	    IJ.log("Results saved");
+	
+	    //Close all our windows
+	    IJ.run(vesselImageProc, "Close All", "");
+	
+	   }
+	  }
+	 }
+	}
    }
   }
- }
-}
+
