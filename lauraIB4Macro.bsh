@@ -14,6 +14,8 @@ import ij.ImagePlus;
 import ij.plugin.ChannelSplitter;
 import ij.ImageStack;
 import ij.io.FileSaver;
+import java.text.SimpleDateFormat;
+import java.text.DateFormat;
 
 //Function to try all the autoThresh options and get user input after making a small substack of the input image
 public static autoThreshTryAll(avg) {
@@ -586,7 +588,12 @@ for (i = 0; i < folderList.length; i++) {
 	  
 	  //Loop through all the images in the folder again
 	  for(j=0; j<imagesRaw.length; j++) {
-	  	
+	  	        
+	  	Calendar cal = Calendar.getInstance();
+        Date date=cal.getTime();
+        DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
+        String startDate=dateFormat.format(date);
+	    
 	    //Create a variable where we store the directory to check if the image has actually been processed
 	    File processed = new File(fullString + "/" + "Processed/" + imagesRaw[j] + "/Processed Vessels");
 	
@@ -647,17 +654,62 @@ for (i = 0; i < folderList.length; i++) {
 	
 	    //Create a new results table to store our info
 	    customRT = new ResultsTable();
+
+		objectsMeasured = 0;
 	
 	    //Loop through our objects
 	    for (i = 0; i < nbObj; i++) {
-	
-	     IJ.log("Analysing object number: " + Integer.toString(i));
 	     
+	     IJ.log("Analysing object number: " + Integer.toString(i));
+
 	     //Get out each part of the segmented image, find where the current section overlaps with the skeleton
 	     //to get its skeleton bit
 	     segmentedImage.show();
 	     IJ.run(segmentedImage, "Select Label(s)", "label(s)=" + (i + 1) + "");
 	     labelImage = IJ.getImage();
+	     labelImage.show();
+	     
+	     checkVol=labelImage.duplicate();
+	     IJ.setRawThreshold(checkVol, 1, 255, null);
+		 IJ.run(checkVol, "Convert to Mask", "method=Default background=Dark");
+
+	     checkVol.show();
+
+	     //IJ.run(checkVol, "Convert to Mask", "method=Default background=Dark");
+	     
+	     //Run the voxel counter - counts all the voxels in black
+		 IJ.run(checkVol, "Voxel Counter", "");
+		 //Get out the number of voxels counted as a double array, voxelCount
+		 ResultsTable rt = ResultsTable.getResultsTable();
+		 voxelCount = rt.getColumnAsDoubles(0);
+
+		 exists = false;
+
+		 if(voxelCount!=null) {
+			 IJ.log("Not null");
+			 for(j=0; j<voxelCount.length; j++) {
+			 	IJ.log(IJ.d2s(voxelCount[j], 9));
+			 	if(voxelCount[j]==0) {
+			 		IJ.log("Is zero");
+			 		continue;
+			 	} else {
+			 		IJ.log("Found non zero");
+			 		exists = true;
+			 		break;
+			 	}
+			 }
+		 }
+
+		 if(exists == false) {
+		 	IJ.log("voxelCount is null");
+		 	labelImage.close();
+		 	checkVol.close();
+		 	continue;
+		 }
+
+		 checkVol.close();
+	          
+	     labelImage.show();
 	     ImageCalculator ic = new ImageCalculator();
 	     imp3 = ic.run("AND create stack", skeleton, labelImage);
 	     imp3.show();
@@ -666,17 +718,29 @@ for (i = 0; i < folderList.length; i++) {
 	     labelImage.hide();
 	
 		 IJ.log("Getting radius of object");
+
+		 saveDir = (processed.getParent() + "/Roi.zip");
+		 //saveDir = ("E:" + File.separator + "Dropbox (Brain Energy Lab)" + File.separator + "Everything" + File.separator + "Laura" + File.separator + "Immuno" + File.separator + "Isolectin" + File.separator + "M1" + File.separator + "Processed" + File.separator +"Ctx_1a_1.tif" + File.separator + "Roi.zip"); 
+
+		 dmap.show();
+		 skeleton.show();
+		 skeleton.setTitle("Skel");
+		 labelImage.show();
+		 labelImage.setTitle("Label Image");
+
+		 output = IJ.runMacro(" saveDir = getArgument(); run(\"3D Manager\"); selectWindow(\"Result\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Save(saveDir); Ext.Manager3D_Close(); run(\"3D Manager\"); Ext.Manager3D_Load(saveDir); selectWindow(\"dmap\"); Ext.Manager3D_Quantif3D(0, \"Mean\", quantif); Ext.Manager3D_Close(); textForm = toString(quantif); return textForm;", saveDir);
+		 meanValue = Double.valueOf(output);
 	
 	     //Use the skeleton of it to read out the radius of the section in our distance map
-	     output = IJ.runMacro("setBatchMode(true); saveDir = File.directory + \"Roi.zip\"; print(saveDir); run(\"3D Manager\"); selectWindow(\"Result\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Save(saveDir); Ext.Manager3D_Close(); run(\"3D Manager\"); Ext.Manager3D_Load(saveDir);  selectWindow(\"dmap\"); Ext.Manager3D_Quantif3D(0, \"Mean\", quantif); Ext.Manager3D_Close(); textForm = toString(quantif); return textForm;");
-	     meanValue = Double.valueOf(output);
+	     //output = IJ.runMacro("setBatchMode(true); saveDir = File.directory + \"Roi.zip\"; print(saveDir); run(\"3D Manager\"); selectWindow(\"Result\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Save(saveDir); Ext.Manager3D_Close(); run(\"3D Manager\"); Ext.Manager3D_Load(saveDir);  selectWindow(\"dmap\"); Ext.Manager3D_Quantif3D(0, \"Mean\", quantif); Ext.Manager3D_Close(); textForm = toString(quantif); return textForm;");
+	     //meanValue = Double.valueOf(output);
 	
 	     IJ.log("Radius is " + output);
 	     IJ.log("Getting skeleton length of object");
 	
 	     //Get out the volume in pixels of the skeleton (length)
-	     output = IJ.runMacro("setBatchMode(true); saveDir = File.directory + File.separator + \"Roi.zip\"; run(\"3D Manager\"); Ext.Manager3D_Load(saveDir); Ext.Manager3D_Measure3D(0, \"Vol\", vol); asString = toString(vol); print(asString); Ext.Manager3D_Close(); return asString;");
-	     length = Double.valueOf(output);
+	     output = IJ.runMacro("setBatchMode(true); saveDir = getArgument(); run(\"3D Manager\"); Ext.Manager3D_Load(saveDir); Ext.Manager3D_Measure3D(0, \"Vol\", vol); asString = toString(vol); print(asString); Ext.Manager3D_Close(); return asString;", saveDir);
+	     length = Double.valueOf(output); // returned in units
 	
 	     IJ.log("Length in pixels is " + output);
 	
@@ -685,8 +749,11 @@ for (i = 0; i < folderList.length; i++) {
 	
 	     IJ.log("Enlarging object by 2 microns");
 
-	     IJ.run(labelImage, "3D Fast Filters","filter=Maximum radius_x_unit=2.0 radius_y_unit=2.0 radius_z_unit=2.0 algorithm=Isotropic Nb_cpus=4");
-	     enlargedImage = WindowManager.getImage("Maximum");   
+	     IJ.run(labelImage, "3D Fast Filters","filter=Maximum radius_x_unit="+rawCal.getRawX(2.0)+" radius_y_unit="+rawCal.getRawY(2.0)+" radius_z_unit="+rawCal.getRawZ(2.0)+" algorithm=Isotropic Nb_cpus=4");
+	     enlargedImage = WindowManager.getImage("Maximum");  
+
+		 labelImage.show();
+		 enlargedImage.show();
 	     
 	     //IJ.run(enlargedImage, "Maximum 3D...", "x=" + rawCal.getRawX(2.0) + " y=" + rawCal.getRawY(2.0) + " z=" + rawCal.getRawZ(2.0) + "");
 	     //labelImage.show();
@@ -702,7 +769,10 @@ for (i = 0; i < folderList.length; i++) {
 	     volumeChecking = Double.valueOf(output);
 	
 	     IJ.log("Volume of enlarged object: " + output);
-	
+
+		 enlargedImage.changes = false;
+		 labelImage.changes = false;
+			
 	     enlargedImage.close();
 	     labelImage.close();
 	
@@ -715,6 +785,8 @@ for (i = 0; i < folderList.length; i++) {
 	     IB4Overlap.setTitle("IB4Overlap");
 	
 		 IJ.log("Getting volume of pixels within ROI");
+
+		 IB4Overlap.show();
 	
 	     //Use the 3D manager to get out the volume within this ROI
 	     output = IJ.runMacro("setBatchMode(true); selectWindow(\"IB4Overlap\"); run(\"Auto Threshold\", \"method=Default white stack\"); run(\"Z Project...\", \"projection=[Max Intensity]\"); selectWindow(\"MAX_IB4Overlap\"); run(\"Invert\", \"stack\");  run(\"Create Selection\"); print(\"Selection\" + selectionType()); if(selectionType() == -1) { run(\"Select None\"); asString = \"0\"; run(\"Invert\", \"stack\"); selectWindow(\"MAX_IB4Overlap\"); run(\"Close\"); return asString; } else {  selectWindow(\"MAX_IB4Overlap\"); run(\"Close\"); selectWindow(\"IB4Overlap\"); run(\"Select None\"); run(\"3D Manager\"); Ext.Manager3D_AddImage();  Ext.Manager3D_Measure3D(0, \"Vol\", measure); Ext.Manager3D_Close(); asString = toString(measure); return asString;");
@@ -727,11 +799,13 @@ for (i = 0; i < folderList.length; i++) {
 	     diffImage.close();
 	
 	     //Fill our results table with the values of interest
-	     customRT.setValue("Radii", i, meanValue);
-	     customRT.setValue("Length", i, length);
-	     customRT.setValue("Volume Around", i, volumeChecking);
-	     customRT.setValue("Volume Occupied", i, overlappingVolume);
-	     customRT.setValue("Percentage Occupied", i, overlappingVolume / volumeChecking);
+	     customRT.setValue("Radii", objectsMeasured, meanValue);
+	     customRT.setValue("Length", objectsMeasured, length);
+	     customRT.setValue("Volume Around", objectsMeasured, volumeChecking);
+	     customRT.setValue("Volume Occupied", objectsMeasured, overlappingVolume);
+	     customRT.setValue("Percentage Occupied", objectsMeasured, overlappingVolume / volumeChecking);
+
+	     objectsMeasured++;
 	
 	     customRT.show("Testing");
 	
@@ -745,6 +819,16 @@ for (i = 0; i < folderList.length; i++) {
 	
 	    //Close all our windows
 	    IJ.run(vesselImageProc, "Close All", "");
+
+	    Calendar cal = Calendar.getInstance();
+        Date date=cal.getTime();
+        DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
+        String endDate=dateFormat.format(date);
+
+        IJ.log("Time at start of image" + startDate);
+        IJ.log("Time at end of image" + endDate);
+
+        new WaitForUserDialog("Check timing of image processing", "Check timings").show();
 	
 	   }
 	  }
