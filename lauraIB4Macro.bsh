@@ -582,7 +582,7 @@ for (int i = 0; i < folderList.length; i++) {
 	    }
 	
 		//Close all images before proceeding to the next image in the directory
-	    WindowManager.closeAll();
+	    WindowManager.closeAllWindows();
 	
 	   }
 	  }
@@ -665,10 +665,6 @@ for (int i = 0; i < folderList.length; i++) {
 	
 	    //Loop through our objects
 	    for (int k = 0; k < nbObj; k++) {
-	     
-	     if((k%10)!=0) {
-	     	continue;
-	     }
 	     
 	     IJ.log("Analysing object number: " + Integer.toString(k));
 
@@ -820,7 +816,6 @@ for (int i = 0; i < folderList.length; i++) {
 	    closeImage(skeleton, false);
 	    closeImage(isoImageProc, false);
 	    closeImage(vesselImageProc, false);
-	    WindowManager.closeAll();
 
 		//Get out the time we finished processing this image and print it
 	    Calendar cal = Calendar.getInstance();
@@ -830,8 +825,6 @@ for (int i = 0; i < folderList.length; i++) {
 
         IJ.log("Time at start of image" + startDate);
         IJ.log("Time at end of image" + endDate);
-
-        new WaitForUserDialog("Check timing of image processing", "Check timings").show();
 	
 	   }
 	  }
