@@ -1,3 +1,7 @@
+//Script to analyse the overlap of isolectin staining with vessels, splits the image into 3D objects and calculates the length of these vessel objects, their radii, as well as the isolectin overlap for the objects
+//Dependencies: 3D Suite, Voxel Counter
+//Written by Devin 9/1/19
+
 import ij.IJ;
 import ij.measure.Calibration;
 import ij.plugin.Duplicator;
@@ -17,40 +21,33 @@ import ij.io.FileSaver;
 import java.text.SimpleDateFormat;
 import java.text.DateFormat;
 
-//Function to try all the autoThresh options and get user input after making a small substack of the input image
-public static autoThreshTryAll(avg) {
+//This is a function to close an image and either save it or not depending on the value of toSave
+public static closeImage(ImagePlus image, boolean toSave) {
+	image.changes = toSave;
+	image.close();
+}
 
- impDim = avg.getDimensions();
- lowerLim = (impDim[3] * 0.40).intValue();
- upperLim = (impDim[3] * 0.55).intValue();
+//Function to try all the autoThresh options and get user input after making a small substack of the input image
+public static autoThreshTryAll(ImagePlus avg) {
+
+ //Using the number of slices in the image, calculate the slice at 40% of the depth and 55% of the depth of the stack
+ int[] limits = { (((avg.getDimensions()[3]) * 0.40).intValue()), (((avg.getDimensions()[3])*0.55).intValue()) };
+ //[0] is lowerLim, [1] is upperLim
+
+ //ImagePlus array to store the images we'll work with in the function
+ ImagePlus[] threshImages = new ImagePlus[2];
+ //[0] is threshTest, [1] is threshStack
 
  //Here we create a 5 slice substack of our smoothed, cleaned image, so that we can try out the auto thresholds on it
- threshTest = new Duplicator().run(avg, lowerLim, upperLim);
+ threshImages[0] = new Duplicator().run(avg, lowerLim, upperLim);
 
  //This runs the try all action for the auto threshold method
- IJ.run(threshTest, "Auto Threshold", "method=[Try all] white stack");
- threshStack = WindowManager.getImage("Stack");
+ IJ.run(threshImages[0], "Auto Threshold", "method=[Try all] white stack");
+ threshImages[1] = WindowManager.getImage("Stack");
 
  //These string arrays are for choosing which thresholding method to use
  //Each index in threshChoice corresponds to the method in threshNames
- String[] threshChoice = {
-  "1",
-  "2",
-  "3",
-  "4",
-  "5",
-  "6",
-  "7",
-  "8",
-  "9",
-  "10",
-  "11",
-  "12",
-  "13",
-  "14",
-  "15",
-  "16"
- };
+ String[] threshChoice = { "1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16" };
 
  //Create a non-blocking dialog so the user can still check the image whilst choosing
  //Ask the user which threshold option worked best, and also whether none of them are good
@@ -60,21 +57,20 @@ public static autoThreshTryAll(avg) {
 
  userInputs.showDialog();
 
- //Close the stack of threshold test
- threshStack.close();
-
- //Close the threshTest image
- threshTest.close();
+ //Close the stack of threshold test and threshTest image
+ for(int i=0; i< threshImages.length; i++) {
+ 	closeImage(threshImages[i], false);
+ }
 
  //Get the choices from the dialog box and the associted thresholding method
  int choice = userInputs.getNextChoiceIndex() + 1;
 
  //Get whether the user is happy with the threshold options 
- goodThreshChoice = userInputs.getCheckboxes().get(0).getState();
+ boolean goodThreshChoice = userInputs.getCheckboxes().get(0).getState();
 
  //If the user isn't happy with any of the choices, set the threshold selected to 0
  if (goodThreshChoice == true) {
-  choice = 0;
+  int choice = 0;
  }
 
  //Return the thresh selected
@@ -83,61 +79,15 @@ public static autoThreshTryAll(avg) {
 }
 
 //This is to replace the image avg with another image backup so that for all variable and title purposes backup is now avg
-public static replaceWithBackup(avg, backup) {
+public static replaceWithBackup(ImagePlus avg, ImagePlus backup) {
 
  //Get the title of avg, close it without changes, set backup to the same title and reassign it to the avg variable and return it
- avg.changes = false;
- avg.close();
  backup.setTitle(avg.getTitle());
+ closeImage(avg, false);
  avg = backup;
  avg.show();
-
  return avg;
-}
-
-public static trialSelectedThreshold(avg, backup, autoThreshFinal) {
-
- //String of the thresholding methods to use						
- String[] threshNames = {
-  "Default",
-  "Huang",
-  "Huang2",
-  "Intermodes",
-  "IsoData",
-  "Li",
-  "MaxEntropy",
-  "Mean",
-  "MinError(I)",
-  "Minimum",
-  "Moments",
-  "Otsu",
-  "Percentile",
-  "RenyiEntropy",
-  "Shanbhag",
-  "Triangle"
- };
-
- //Create a backup of the image before thresholding the whole thing then creating a composite overlay of the threshold
- //with the raw image to get the user feedback on thresholding quality
- avg.show();
- IJ.run(avg, "Auto Threshold", "method=[" + threshNames[(autoThreshFinal - 1)] + "] white stack");
- IJ.run(avg, "Red", "");
- IJ.run(backup, "Green", "");
- IJ.run(avg, "Merge Channels...", "c1=[" + avg.getTitle() + "] c2=[" + backup.getTitle() + "] create keep");
- comp = IJ.getImage();
-
- //Ask if the user is happy with threhsolding
- NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Threshold Check");
- userInputs.addCheckbox("Happy with the thresholding?", false);
- userInputs.showDialog();
- goodThreshChoice = userInputs.getCheckboxes().get(0).getState();
-
- //Close the composite image
- comp.close();
-
- //Return the user choice on whether the thresholding was good or not
- return goodThreshChoice;
-
+ 
 }
 
 //This is to get the user's approval, a simple dialog box with a single check box, and we return the boolean of the checkbox - inputs are just strings for the
@@ -149,24 +99,22 @@ public static dialogUserApproval(String dialogTitle, String dialogText) {
  userInputs.showDialog();
 
  //We get a vector of checkbox choices, then get the first checbox choice, then get its state to get the boolean out
- checkboxBoolean = userInputs.getCheckboxes().get(0).getState();
-
+ boolean checkboxBoolean = userInputs.getCheckboxes().get(0).getState();
  return checkboxBoolean;
  
 }
 
-public static imageEditingFunction(vesselImageProc) {
-
-  //Should add a section here where you can abort the whole thing because if the images aren't good enough for the analysis..
-  //Maybe a bit where you can play around with the image yourself?
+//A function for the user to edit an image until they are happy with the threshold produced
+public static imageEditingFunction(ImagePlus vesselImageProc) {
 
  //Create a backup of the input image that we can revert to during image processing if we want a clean slate
- babyFresh = vesselImageProc.duplicate();
+ ImagePlus babyFresh = vesselImageProc.duplicate();
 
  //This variable is true as long as we want to keep editing our image
- editImage = true;
+ boolean editImage = true;
 
- forAnalysis = false;
+ //This variable is true if we're happy to analyse the image once editImage is set to false
+ boolean forAnalysis = false;
 
  //While we want to keep editing
  while (editImage == true) {
@@ -180,18 +128,8 @@ public static imageEditingFunction(vesselImageProc) {
   vesselImageProc.show();
 
   //Ask the user to choose between these choices
-  String[] choiceArray = {
-   "Start from the beginning - remove all image edits",
-   "Manually threshold the image",
-   "Try an automated thresholding technique",
-   "Smooth the image",
-   "Despeckle the image",
-   "Play around with the image",
-   "Abandon this image - move onto the next"
-  };
-
-  //Add a section here to play around with the image yourself
-  //Also a section to abort the whole image I think and move onto the next one?
+  String[] choiceArray = {"Start from the beginning - remove all image edits","Manually threshold the image","Try an automated thresholding technique",
+   "Smooth the image","Despeckle the image","Play around with the image","Abandon this image - move onto the next"};
 
   NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Image Processing");
   userInputs.addChoice("Watchu wanna do 'bout it?", choiceArray, "Start from the beginning - remove all ROI clearances and thresholding");
@@ -199,40 +137,70 @@ public static imageEditingFunction(vesselImageProc) {
 
   int choice = userInputs.getNextChoiceIndex();
 
-  if(forAnalysis == false) {
-  	IJ.log("False");
-  } else {
-  	IJ.log("True");
-  }
-
+  //If we're abandoning the image
   if (choice ==6) {
-  	IJ.run(vesselImageProc, "Close All", "");
+  	
+  	//Close all images and set editImage to false
+  	babyFresh.show();
+  	WindowManager.closeAllWindows();
   	editImage = false;
-	forAnalysis = false;
-  } else if (choice == 5) {
-  	
-  	backup = vesselImageProc.duplicate();
-  	backup.hide();
-  	
-  	NonBlockingGenericDialog freePlay = new NonBlockingGenericDialog("Freeplay Processing");
-  	freePlay.addMessage("Process the image as you see fit");
-  	freePlay.addMessage("If you wish to proceed with your processed, thresholded image, rename it \"Processed\"");
-  	freePlay.addMessage("Else, leave it named as something else and close all windows except the image");
-  	freePlay.addMessage("Press ok when done");
-  	freePlay.showDialog();
-  	
- 	processedImage = WindowManager.getImage("Processed");
 
+  //If we want to play around with the image	
+  } else if (choice == 5) {
+
+  	//Create a toShow image so the user can see what they had before the freeplay
+  	ImagePlus toShow = vesselImageProc.duplicate();
+  	toShow.show();
+
+  	//Also create a hidden backup to revert to if the user doesn't want to proceed after freeplay
+  	ImagePlus backup = vesselImageProc.duplicate();
+  	backup.hide();
+
+    //Messages to add to the dialog box to inform the user about what to do
+  	String[] freePlayMessages = {"Process the image as you see fit", "If you wish to proceed with your processed, thresholded image, rename it \"Processed\"",
+  		"Else, leave it named as something else", "Press \"ok\" when done"};
+
+  	//Create a dialog box showing these messages
+  	NonBlockingGenericDialog freePlay = new NonBlockingGenericDialog("Freeplay Processing");
+	for(int i=0; i<freePlayMessages.length; i++) {
+		freePlay.addMessage(freePlayMessages[i]);
+	}
+	freePlay.showDialog();
+
+  	//Return the processed image - returns null if it doesn't exist
+ 	ImagePlus processedImage = WindowManager.getImage("Processed");
+
+	//If the processed image doesn't exists
  	if(processedImage==null) {
- 		backup.show();
- 		vesselImageProc = replaceWithBackup(vesselImageProc, backup);
- 	} else {
- 		backup.close();	
  		
+ 		//We replace our input image with the backup image and then close all other images
+ 		vesselImageProc = replaceWithBackup(vesselImageProc, backup);
+ 		
+ 		vesselImageProc.show();
+ 		IJ.runMacro("imageTitle = getArgument(); selectWindow(imageTitle); close(\"\\\\Others\")", vesselImageProc.getTitle());
+ 		babyFresh.show();
+ 		
+ 		new WaitForUserDialog("Check that babyfresh is shown", "Check").show();
+
+ 		babyFresh.hide();
+ 		vesselImageProc.hide();
+
+    //If the processed image does exist
+ 	} else {
+
+		//show backup and babyfresh so we can close them
+		backup.show();
+		babyFresh.show();
+
+		//Close all windows except the processed image
+		IJ.runMacro("selectWindow(\"Processed\"); close(\"\\\\Others\")");
+ 		
+ 		//If the processed LUT is inverted, invert it the right way
 	  	if(processedImage.isInvertedLut() == true) {
 			IJ.run(processedImage, "Invert LUT", "");
 		}
-		
+
+		//Set our vesselImageProc variable to the processed image, editImage to false, and forAnalysis to true
  		vesselImageProc = processedImage;
  		editImage = false;
 	 	forAnalysis = true;
@@ -242,14 +210,14 @@ public static imageEditingFunction(vesselImageProc) {
   } else if (choice == 4) {
 
    //We backup the image, run the despeckle
-   backup = vesselImageProc.duplicate();
+   ImagePlus backup = vesselImageProc.duplicate();
    IJ.run(vesselImageProc, "Despeckle", "stack");
 
+   //Show the backup so the user can compare the despeckled image to non despeckled
    backup.show();
 
    //Check user is happy with despeckling, if so then proceed and close the backup, else revert to backup
-   despeckleCheck = dialogUserApproval("Despeckling satisfactory?", "Happy with the despeckle?");
-
+   boolean despeckleCheck = dialogUserApproval("Despeckling satisfactory?", "Happy with the despeckle?");
    if (despeckleCheck == true) {
     backup.close();
     IJ.log("Image despeckled");
@@ -261,28 +229,12 @@ public static imageEditingFunction(vesselImageProc) {
   } else if (choice == 3) {
 
    //Backup the image
-   backup = vesselImageProc.duplicate();
+   ImagePlus backup = vesselImageProc.duplicate();
 
    //Get the user's choices re: smoothing technique and size of smoothing in terms of pixel sizes
-   String[] smoothingArray = {
-    "Gaussian Blur 3D",
-    "Median 3D",
-    "Mean 3D",
-    "Minimum 3D",
-    "Maximum 3D",
-    "Variance 3D"
-   };
-   String[] despeckleArray = {
-    "Yes, before smoothing",
-    "Yes, after smoothing",
-    "No"
-   };
-   String[] pixelSizeArray = {
-    "Pixels to smooth in x: ",
-    "Pixels to smooth in y: ",
-    "Pixels to smooth in z: "
-   };
-   ArrayList pixelSizeChoices = new ArrayList();
+   String[] smoothingArray = {"Gaussian Blur 3D","Median 3D","Mean 3D","Minimum 3D","Maximum 3D","Variance 3D", "Gaussian Blur", "Median", "Mean", "Minimum", "Maximum", "Variance"};
+   String[] despeckleArray = {"Yes, before smoothing","Yes, after smoothing","No"};
+   String[] pixelSizeArray = {"Pixels to smooth in x: ","Pixels to smooth in y: ","Pixels to smooth in z: "};
 
    NonBlockingGenericDialog userInputs = new NonBlockingGenericDialog("Image Smoothing");
    userInputs.addChoice("Which smoothing technique?", smoothingArray, "Gaussian Blur 3D");
@@ -294,6 +246,7 @@ public static imageEditingFunction(vesselImageProc) {
    }
 
    userInputs.showDialog();
+   ArrayList pixelSizeChoices = new ArrayList();
 
    //Get pixel sizes
    for (pxls = 0; pxls < pixelSizeArray.length; pxls++) {
@@ -304,19 +257,26 @@ public static imageEditingFunction(vesselImageProc) {
    int smoothingMethod = userInputs.getNextChoiceIndex();
    int despeckleMethod = userInputs.getNextChoiceIndex();
 
+   //If we're not using a 3D filter, then the smooth function disregards the z pixel size, otherwise it includes it
+   if(smoothingMethod>=6) {
+    public static smoothFunction(vesselImageProc, smoothingArray, smoothingMethod, pixelSizeChoices) {IJ.run(vesselImageProc, "" + smoothingArray[smoothingMethod] + "...", "x=" + pixelSizeChoices.get(0) + " y=" + pixelSizeChoices.get(1) + ""); }
+   } else {
+   	public static smoothFunction(vesselImageProc, smoothingArray, smoothingMethod, pixelSizeChoices) {IJ.run(vesselImageProc, "" + smoothingArray[smoothingMethod] + "...", "x=" + pixelSizeChoices.get(0) + " y=" + pixelSizeChoices.get(1) + " z=" + pixelSizeChoices.get(2) + ""); }
+   }
+
    //If before, run it before smooothing, else run after smoothing
    if (despeckleMethod == 0) {
     IJ.run(vesselImageProc, "Despeckle", "stack");
-    IJ.run(vesselImageProc, "" + smoothingArray[smoothingMethod] + "...", "x=" + pixelSizeChoices.get(0) + " y=" + pixelSizeChoices.get(1) + " z=" + pixelSizeChoices.get(2) + "");
+    smoothFunction(vesselImageProc, smoothingArray, smoothingMethod, pixelSizeChoices);
    } else if (despeckleMethod == 1) {
-    IJ.run(vesselImageProc, "" + smoothingArray[smoothingMethod] + "...", "x=" + pixelSizeChoices.get(0) + " y=" + pixelSizeChoices.get(1) + " z=" + pixelSizeChoices.get(2) + "");
+    smoothFunction(vesselImageProc, smoothingArray, smoothingMethod, pixelSizeChoices);
     IJ.run(vesselImageProc, "Despeckle", "stack");
    } else if (despeckleMethod == 2) {
-    IJ.run(vesselImageProc, "" + smoothingArray[smoothingMethod] + "...", "x=" + pixelSizeChoices.get(0) + " y=" + pixelSizeChoices.get(1) + " z=" + pixelSizeChoices.get(2) + "");
+    smoothFunction(vesselImageProc, smoothingArray, smoothingMethod, pixelSizeChoices);
    }
 
    //Check user is happy with smoothing, if so then proceed and close the backup, else revert to backup
-   smoothFirstCheck = dialogUserApproval("Smoothing satisfactory?", "Happy with the smoothing?");
+   boolean smoothFirstCheck = dialogUserApproval("Smoothing satisfactory?", "Happy with the smoothing?");
 
    if (smoothFirstCheck == true) {
     backup.close();
@@ -335,50 +295,32 @@ public static imageEditingFunction(vesselImageProc) {
   } else if (choice == 2) {
 
    //Backup the input image and run the autoThreshTryAll function on the input
-   backup = vesselImageProc.duplicate();
-   autoThreshFinal = autoThreshTryAll(vesselImageProc);
+   ImagePlus backup = vesselImageProc.duplicate();
+   int autoThreshFinal = autoThreshTryAll(vesselImageProc);
 
    //If the user is happy with the threhsolding, then run it (if autothreshfinal is a 0 then the user didn't like any of the outputs)
    if (autoThreshFinal != 0) {
 
-    String[] threshNames = {
-     "Default",
-     "Huang",
-     "Huang2",
-     "Intermodes",
-     "IsoData",
-     "Li",
-     "MaxEntropy",
-     "Mean",
-     "MinError(I)",
-     "Minimum",
-     "Moments",
-     "Otsu",
-     "Percentile",
-     "RenyiEntropy",
-     "Shanbhag",
-     "Triangle"
-    };
+    String[] threshNames = {"Default","Huang","Huang2","Intermodes","IsoData","Li","MaxEntropy","Mean","MinError(I)","Minimum",
+     "Moments","Otsu","Percentile","RenyiEntropy","Shanbhag","Triangle"};
+ 
     //Notice here we run it with a stack histogram, not what we do when trying them (seems to mess with how it gets displayed)
-
-    String[] stackOptions = {
-     "",
-     "use_stack_histogram"
-    };
-    stackHistogram = dialogUserApproval("Stack Histogram", "Threshold using the stack histogram?");
+    String[] stackOptions = {"","use_stack_histogram"};
+    boolean stackHistogram = dialogUserApproval("Stack Histogram", "Threshold using the stack histogram?");
     int stackChoice = stackHistogram ? 1 : 0;
     IJ.run(vesselImageProc, "Auto Threshold", "method=" + threshNames[(autoThreshFinal - 1)] + " white stack " + stackOptions[stackChoice] + "");
 
     //Check if the user is happy
-    threshFirstCheck = dialogUserApproval("Threshold satisfactory?", "Happy with the threshold?");
+    boolean threshFirstCheck = dialogUserApproval("Threshold satisfactory?", "Happy with the threshold?");
 
-    //If so, we try out skeletonising the threhsolded image
+    //If so, we try out skeletonising the threhsolded image outside the editing function
     if (threshFirstCheck == true) {
 
      IJ.log("Proceeding with threshold: " + threshNames[(autoThreshFinal - 1)]);
-     editImage = false;
-	 forAnalysis = true;
+     boolean editImage = false;
+	 boolean forAnalysis = true;
 	 backup.close();
+	 babyFresh.close();
 
      //If the user wasn't happy with thresholding the whole stack, replace the thresholded image with the backup
     } else {
@@ -393,10 +335,10 @@ public static imageEditingFunction(vesselImageProc) {
   } else if (choice == 1) {
 
    //Create a backup
-   backup = vesselImageProc.duplicate();
+   ImagePlus backup = vesselImageProc.duplicate();
 
    //Run the manual threshlding function on the input where manualHappy is a boolean about whether the user was happy with the manual thresholding
-   manualHappy = manualThresholding(vesselImageProc);
+   boolean manualHappy = manualThresholding(vesselImageProc);
 
    //If the user is happy, we'll try the skeleton editing function
    if (manualHappy == true) {
@@ -404,6 +346,7 @@ public static imageEditingFunction(vesselImageProc) {
     editImage = false;
     forAnalysis = true;
     backup.close();
+    babyFresh.close();
 
     //If the user wasn't happy with manual thresholding initially, replace the thresholded image with the backup
    } else {
@@ -429,6 +372,84 @@ public static imageEditingFunction(vesselImageProc) {
 
 }
 
+//Function to check the outputs returned from the imageEditingFunction, inputs are the output file from that function and a file path to where processed files should be saved
+public static checkEditingOutput(editingOutput, File processed) {
+	
+	//If the output wasn't satisfactory from editing the image, we close all windows and create the processed file path so we skip this file in the future - also the ImagePlus object
+	//we return is null
+	ImagePlus output = null;
+	if(editingOutput.get(1) == false) {
+		WindowManager.closeAllWindows();
+		processed.mkdirs();	
+	
+	//If it was successful, we return the image generated by the image editing function
+	} else {
+		output = editingOutput.get(0);
+	}
+	return output;
+}
+
+//Function for manual thresholding of an image
+public static manualThresholding(ImagePlus avg) {
+
+	//Ask the user to do their own manual thresholding, and click ok when done
+	new WaitForUserDialog("Manual thresholding", "Manually threshold the image then proceed").show();
+	//If after thresholding the image has an inverted LUT, we flip it
+	if(avg.isInvertedLut() == true) {
+		IJ.run(avg, "Invert LUT", "");
+	}
+	//Now we ask the user to check that the image foreground and background are correctly set
+	new WaitForUserDialog("Check image", "Make sure that vessels are in white on a black background, then proceed").show();
+
+	//Check if the user is happy with the outcome of the manual thresholding
+	boolean manualHappy = dialogUserApproval("Manual Thresholding", "Happy with the manual threshold?");
+
+	//Return their choice
+	return manualHappy;
+	
+}
+
+//Function to check whether above threshold voxels are present in the input image
+public static checkPresenceVoxels(image) {
+
+	//Set all pixels with a grey value of >=1 to 255 then convert to a mask
+	IJ.setRawThreshold(image, 1, 255, null);
+	IJ.run(image, "Convert to Mask", "method=Default background=Dark");
+
+	image.show();
+
+	//Run the voxel counter - counts all the voxels in black - on the image so we can make sure that there are actually voxels in our object image
+	IJ.run(image, "Voxel Counter", "");
+			 
+	//Get out the number of voxels counted as a double array, voxelCount
+	ResultsTable rt = ResultsTable.getResultsTable();
+	double[] voxelCount = rt.getColumnAsDoubles(0);
+	
+	//Create a boolean variable to show whether there are voxels or not in our image
+	boolean exists = false;
+	
+	//voxelCount can be null if the column is empty (i.e. the code has errored), so if it isn't
+	if(voxelCount!=null) {
+	
+		//Loop through the voxelCount array
+		for(l=0; l<voxelCount.length; l++) {
+				 	
+			//If the current value is zero, we continue onwards
+			if(voxelCount[l]==0) {
+				continue;
+				 	
+			//If its not zero, we set exists to true and break out of our loop
+			} else {
+				IJ.log("Found non zero");
+				exists = true;
+				break;
+			}
+		}
+	}
+	
+	return exists;
+}
+
 //Ask the user to select the directory where the isolectin images to be analysed are
 DirectoryChooser userDir = new DirectoryChooser("Select The Isolectin Directory");
 
@@ -447,7 +468,7 @@ userInput.showDialog();
 int functionChoice = userInput.getNextChoiceIndex();
 
 //Looping through the isolectin directory files/folders
-for (i = 0; i < folderList.length; i++) {
+for (int i = 0; i < folderList.length; i++) {
 
  //Concatenate the file onto the original isolectin directory
  String fullString = dirString.concat(folderList[i]);
@@ -463,12 +484,7 @@ for (i = 0; i < folderList.length; i++) {
   if(functionChoice == 0) {
 
 	//Create a string to store a choice of channels
-	String[] channelSelection = {
-	 "1",
-	 "2",
-	 "3",
-	 "4"
-	};
+	String[] channelSelection = {"1","2","3","4"};
 	
 	//Ask the user to choose which channels represent the vessels and isolectin staining
 	GenericDialog userInput = new GenericDialog("Channel Selection");
@@ -480,12 +496,12 @@ for (i = 0; i < folderList.length; i++) {
 	int[] channelNumbs = new int[2];
 	//[0] is vesselChannel, [1] is isoChannel
 	
-	for (i = 0; i < 2; i++) {
-	 channelNumbs[i] = userInput.getNextChoiceIndex() + 1;
+	for (j = 0; j < 2; j++) {
+	 channelNumbs[j] = userInput.getNextChoiceIndex() + 1;
 	}
 
-	  //Looping through those files
-	  for (j = 0; j < imagesRaw.length; j++) {
+	//Looping through those files
+	for (int j = 0; j < imagesRaw.length; j++) {
 	
 	   //Create a variable where we store the directory to check if the image has already been processed
 	   File processed = new File(fullString + "/" + "Processed/" + imagesRaw[j] + "/");
@@ -509,7 +525,7 @@ for (i = 0; i < folderList.length; i++) {
 	    double beginningPoint = Math.floor((rawSlices - slicesToGrab) / 2);
 	
 	    //Create a substack based on those numbers and close the raw image
-	    cutDown = new Duplicator().run(raw, 1, raw.getNChannels(), (int) beginningPoint, (int)(rawSlices - beginningPoint), 1, 1);
+	    ImagePlus cutDown = new Duplicator().run(raw, 1, raw.getNChannels(), (int) beginningPoint, (int)(rawSlices - beginningPoint), 1, 1);
 	    raw.close();
 	
 	    //Create arrays to store the image stacks of the split channels and then the imageplus objects we make from the stacks,
@@ -517,68 +533,56 @@ for (i = 0; i < folderList.length; i++) {
 	    ImageStack[] imageStacks = new ImageStack[2];
 	    ImagePlus[] images = new ImagePlus[2];
 	    //[0] is vesselImage, [1] is isoImage
-	    String[] titles = new String[] {
-	     "Vessels",
-	     "Iso"
-	    };
+	    String[] titles = new String[] {"Vessels","Iso"};
 	
 	    //Create an imageplus array to store our processed imageplus objects
 	    ImagePlus[] procImages = new ImagePlus[2];
-	
+
+		//Use the imageStacks array to split our images into different channels of a smaller size
 	    for (k = 0; k < 2; k++) {
 	     imageStacks[k] = new ChannelSplitter().getChannel(cutDown, channelNumbs[k]);
-	     images[k] = new ImagePlus(titles[k], imageStacks[k]);
-	     
+	     images[k] = new ImagePlus(titles[k], imageStacks[k]);   
 	    }
 	
 		//Close our original cutDown image
 	    cutDown.close();
 	
 	    //Assign variable names to the processed images
-	    vesselImageProc = images[0];
-	    isoImageProc = images[1];
+	    ImagePlus vesselImageProc = images[0];
+	    ImagePlus isoImageProc = images[1];
 	
 		//Run the imageEditingFunction on our vessel image, and get out whether it was successful or not
 	    vesselImageOutput = imageEditingFunction(vesselImageProc);
-	
-		//If it wasn't successful, close all the images, create the processed directory (so that we know we've processed this image)
-		//and move onto the next image
-		if(vesselImageOutput.get(1) == false) {
-			IJ.run(vesselImageProc, "Close All", "");
-	    	processed.mkdirs();
+
+		//If it wasn't successful, we close all windows and create the processed directory so we know to skip this file next time and move onto the next file,
+		//but if it was, we return the output image generated and move on
+		ImagePlus vesselImageProc = checkEditingOutput(vesselImageOutput, processed);
+		if(vesselImageOutput.get(1)==false) {
 			continue;
 		}
-	
-		//If it was successful, get the image it generated
-		vesselImageProc = vesselImageOutput.get(0);
-	
-	    //Run the imageEditingFunction on our iso image, and get out whether it was successful or not
-	    isoImageOutput = imageEditingFunction(isoImageProc);
-	
-		//If it wasn't successful, close all the images, create the processed directory (so that we know we've processed this image)
-		//and move onto the next image
-	    if(isoImageOutput.get(1) == false) {
-	    	IJ.run(isoImageProc, "Close All", "");
-	    	processed.mkdirs();
-	    	continue;
-	    }
-	
-		//If it was successful, get the image it generated
-	    isoImageProc = isoImageOutput.get(0);
 
+		//Run the imageEditingFunction on our iso image, and get out whether it was successful or not, same process as the vessel image
+	    isoImageOutput = imageEditingFunction(isoImageProc);
+		ImagePlus isoImageProc = checkEditingOutput(isoImageOutput, processed);
+		if(isoImageOutput.get(1) == false) {
+			continue;
+		}
+
+		//Store out output images in an ImagePlus array, and the names we want to save them as in a string array
 	    ImagePlus[] outputImages = new ImagePlus[] {vesselImageProc, isoImageProc};
 	    String[] saveName = new String[] {"Processed Vessels", "Processed Iso"};
 	    	
 		//Create the directory where we will save our processed images
 		processed.mkdirs();
 
+		//Calibrate our output images before saving them in the processed directory with their saveNames
 	    for(k=0; k<outputImages.length; k++) {
 	    	outputImages[k].setCalibration(rawCal);
 	    	new FileSaver(outputImages[k]).saveAsTiff(processed.getPath() + "/" + saveName[k]);
 	    }
 	
 		//Close all images before proceeding to the next image in the directory
-	    IJ.run(vesselImageProc, "Close All", "");
+	    WindowManager.closeAll();
 	
 	   }
 	  }
@@ -587,8 +591,9 @@ for (i = 0; i < folderList.length; i++) {
   	} else if (functionChoice == 1) {
 	  
 	  //Loop through all the images in the folder again
-	  for(j=0; j<imagesRaw.length; j++) {
-	  	        
+	  for(int j=0; j<imagesRaw.length; j++) {
+
+	  	//Get out the start time for running this analysis function as a way to time it
 	  	Calendar cal = Calendar.getInstance();
         Date date=cal.getTime();
         DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
@@ -601,202 +606,194 @@ for (i = 0; i < folderList.length; i++) {
 		if(processed.exists() && !(new File(processed.getParent() + "/IB4Overlap.xls").exists())) {
 		
 		 //Open the vessel and iso images
-	     vesselImageProc = IJ.openImage(processed.getPath());
-	     isoImageProc = IJ.openImage(processed.getParent() + "/Processed Iso");
+	     ImagePlus vesselImageProc = IJ.openImage(processed.getPath());
+	     ImagePlus isoImageProc = IJ.openImage(processed.getParent() + "/Processed Iso");
 
 		 //Rename the thresholded vessels to "Thresholded" so that we can refer to it when using 3d manager
 	     vesselImageProc.setTitle("Thresholded");
 
+		 //Get out the calibration of the images for when we enlarge our ROIs
 	     Calibration rawCal = vesselImageProc.getCalibration();
 	
 		 //Create an imageplus array to store duplicates of the vesselImageProc object, and a string array to store the
 		 //names we'll call these duplicates
 	     ImagePlus[] duplicates = new ImagePlus[2];
-	     String[] titles = new String[] {
-	      "Skel",
-	      "DmapPre"
-	     };
+	     String[] titles = new String[] {"Skel","DmapPre"};
 	
 		//Duplicate the image and set its titles
-	    for (l = 0; l < 2; l++) {
-	     duplicates[l] = vesselImageProc.duplicate();
-	     duplicates[l].setTitle(titles[l]);
+	    for (int k = 0; k < 2; k++) {
+	     duplicates[k] = vesselImageProc.duplicate();
+	     duplicates[k].setTitle(titles[k]);
 	    }
 	
 		//Set objects to these duplicates
-		dmapPre = duplicates[1];
-		skeleton = duplicates[0];
-	
+		ImagePlus dmapPre = duplicates[1];
+		ImagePlus skeleton = duplicates[0];
+
+		//Show the dmapPre duplicate as we have to in order to run 3D Distance Map
 	    dmapPre.show();
 	
-	    //Generate the distance map
+	    //Generate the distance map and assign it to a variable and change its title
 	    IJ.run("3D Distance Map", "map=EDT image=" + dmapPre.getTitle() + " mask=None threshold=1");
-	    dmap = IJ.getImage();
+	    ImagePlus dmap = IJ.getImage();
 	    dmap.setTitle("dmap");
 	
 	    //Close the image used to generate it
-	    dmapPre.changes = false;
-	    dmapPre.close();
+	    closeImage(dmapPre, false);
 	
-	    //Skeletonise the image
+	    //Skeletonise the other duplicate
 	    IJ.run(skeleton, "Skeletonize (2D/3D)", "");
-	
-	    IJ.log("Getting out number of objects in the picture");
 
+		//Find the number of 3D objects present in the thresholded vessel image
+	    IJ.log("Getting out number of objects in the picture");
 	    vesselImageProc.show();
 	
-	    //Use the 3D manager (within a macro as commands don't work otherwise) to segment our vessels and get out the number of objects in the picture
-	    output = IJ.runMacro("run(\"3D Manager\"); selectWindow(\"Thresholded\"); Ext.Manager3D_Segment(1,255); Ext.Manager3D_AddImage(); Ext.Manager3D_Count(nb_obj); Ext.Manager3D_Close(); textForm = toString(nb_obj); return textForm;");
-	    nbObj = Integer.valueOf(output);
-	    segmentedImage = WindowManager.getImage("Thresholded-3Dseg");
+	    //Use the 3D manager (within a macro as commands don't work otherwise) to segment our vessels and get out the number of objects in the picture - we pass it the name of our vessel image as an argument
+	    String output = IJ.runMacro("setBatchMode(true); imageName = getArgument(); run(\"3D Manager\"); selectWindow(\"Thresholded\"); Ext.Manager3D_Segment(1,255); Ext.Manager3D_AddImage(); Ext.Manager3D_Count(nb_obj); Ext.Manager3D_Close(); textForm = toString(nb_obj); setBatchMode(\"exit and display\"); return textForm;", vesselImageProc.getTitle());
+	    int nbObj = Integer.valueOf(output);
+	    
+	    //Assign the newly segmented image to a new variable
+	    ImagePlus segmentedImage = WindowManager.getImage("Thresholded-3Dseg");
 	
 	    IJ.log("Number of objects: " + output);
 	
 	    //Create a new results table to store our info
-	    customRT = new ResultsTable();
+	    ResultsTable customRT = new ResultsTable();
 
-		objectsMeasured = 0;
+		//Create a new counter variable so we know where to add data into our results table
+		int objectsMeasured = 0;
 	
 	    //Loop through our objects
-	    for (i = 0; i < nbObj; i++) {
+	    for (int k = 0; k < nbObj; k++) {
 	     
-	     IJ.log("Analysing object number: " + Integer.toString(i));
+	     if((k%10)!=0) {
+	     	continue;
+	     }
+	     
+	     IJ.log("Analysing object number: " + Integer.toString(k));
 
-	     //Get out each part of the segmented image, find where the current section overlaps with the skeleton
-	     //to get its skeleton bit
+	     //Add the object number to our results table
+	     customRT.setValue("Object number", objectsMeasured, Integer.toString(k+1));
+
+	     //Get out the current object from the segmented image and assign it to a new variable
 	     segmentedImage.show();
-	     IJ.run(segmentedImage, "Select Label(s)", "label(s)=" + (i + 1) + "");
-	     labelImage = IJ.getImage();
-	     labelImage.show();
-	     
+	     IJ.run(segmentedImage, "Select Label(s)", "label(s)=" + (k + 1) + "");
+	     ImagePlus labelImage = IJ.getImage();
+	     segmentedImage.hide();
+
+	     //Duplicate the object image so we can use this duplicate to check if there actually is an object in our image
 	     checkVol=labelImage.duplicate();
-	     IJ.setRawThreshold(checkVol, 1, 255, null);
-		 IJ.run(checkVol, "Convert to Mask", "method=Default background=Dark");
 
-	     checkVol.show();
+		 //Return whether there is an object in our image 
+	     boolean exists = checkPresenceVoxels(checkVol);
 
-	     //IJ.run(checkVol, "Convert to Mask", "method=Default background=Dark");
-	     
-	     //Run the voxel counter - counts all the voxels in black
-		 IJ.run(checkVol, "Voxel Counter", "");
-		 //Get out the number of voxels counted as a double array, voxelCount
-		 ResultsTable rt = ResultsTable.getResultsTable();
-		 voxelCount = rt.getColumnAsDoubles(0);
+	     //Close the image we used to check for voxels
+		 closeImage(checkVol, false);
 
-		 exists = false;
+		 //Here we define the things we're measuring wrt our object, defaulted to NaNs so that if we can't fill them with actual values (i.e. if there is no object in our image),
+		 //when we print them they will print a NaN
+		 double meanValue = Double.NaN;
+		 double length = Double.NaN;
+		 double volumeChecking = Double.NaN;
+		 double overlappingVolume = Double.NaN;
 
-		 if(voxelCount!=null) {
-			 IJ.log("Not null");
-			 for(j=0; j<voxelCount.length; j++) {
-			 	IJ.log(IJ.d2s(voxelCount[j], 9));
-			 	if(voxelCount[j]==0) {
-			 		IJ.log("Is zero");
-			 		continue;
-			 	} else {
-			 		IJ.log("Found non zero");
-			 		exists = true;
-			 		break;
-			 	}
-			 }
-		 }
-
+		 //If there are no voxels in our object image we close our object image
 		 if(exists == false) {
 		 	IJ.log("voxelCount is null");
-		 	labelImage.close();
-		 	checkVol.close();
-		 	continue;
-		 }
+		 	closeImage(labelImage, false);
 
-		 checkVol.close();
-	          
-	     labelImage.show();
-	     ImageCalculator ic = new ImageCalculator();
-	     imp3 = ic.run("AND create stack", skeleton, labelImage);
-	     imp3.show();
-	     imp3.setTitle("Result");
-	     skeleton.hide();
-	     labelImage.hide();
-	
-		 IJ.log("Getting radius of object");
+		 //If there are voxels in the image
+		 } else {
 
-		 saveDir = (processed.getParent() + "/Roi.zip");
-		 //saveDir = ("E:" + File.separator + "Dropbox (Brain Energy Lab)" + File.separator + "Everything" + File.separator + "Laura" + File.separator + "Immuno" + File.separator + "Isolectin" + File.separator + "M1" + File.separator + "Processed" + File.separator +"Ctx_1a_1.tif" + File.separator + "Roi.zip"); 
+		     //We calculate the voxels in common between the skeleton and our current object and store this in a new image imp3 
+		     ImageCalculator ic = new ImageCalculator();
+		     ImagePlus imp3 = ic.run("AND create stack", skeleton, labelImage);
+		     imp3.setTitle("Result");
 
-		 dmap.show();
-		 skeleton.show();
-		 skeleton.setTitle("Skel");
-		 labelImage.show();
-		 labelImage.setTitle("Label Image");
+			 //Then we check whether there are actually any voxels in common
+		     boolean existsSkel = checkPresenceVoxels(imp3);
 
-		 output = IJ.runMacro(" saveDir = getArgument(); run(\"3D Manager\"); selectWindow(\"Result\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Save(saveDir); Ext.Manager3D_Close(); run(\"3D Manager\"); Ext.Manager3D_Load(saveDir); selectWindow(\"dmap\"); Ext.Manager3D_Quantif3D(0, \"Mean\", quantif); Ext.Manager3D_Close(); textForm = toString(quantif); return textForm;", saveDir);
-		 meanValue = Double.valueOf(output);
+			 //If there aren't any we close our imp3 image and our radius and length values will default to NaN
+			 if(existsSkel == false) {
+			 	
+			 	IJ.log("No overlap between skeleton and object");
+			 	IJ.log("Setting radius and length to null");
+			 	closeImage(imp3, false);
+			 
+			 //If there is an overlap we proceed 
+			 } else {
 	
-	     //Use the skeleton of it to read out the radius of the section in our distance map
-	     //output = IJ.runMacro("setBatchMode(true); saveDir = File.directory + \"Roi.zip\"; print(saveDir); run(\"3D Manager\"); selectWindow(\"Result\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Save(saveDir); Ext.Manager3D_Close(); run(\"3D Manager\"); Ext.Manager3D_Load(saveDir);  selectWindow(\"dmap\"); Ext.Manager3D_Quantif3D(0, \"Mean\", quantif); Ext.Manager3D_Close(); textForm = toString(quantif); return textForm;");
-	     //meanValue = Double.valueOf(output);
-	
-	     IJ.log("Radius is " + output);
-	     IJ.log("Getting skeleton length of object");
-	
-	     //Get out the volume in pixels of the skeleton (length)
-	     output = IJ.runMacro("setBatchMode(true); saveDir = getArgument(); run(\"3D Manager\"); Ext.Manager3D_Load(saveDir); Ext.Manager3D_Measure3D(0, \"Vol\", vol); asString = toString(vol); print(asString); Ext.Manager3D_Close(); return asString;", saveDir);
-	     length = Double.valueOf(output); // returned in units
-	
-	     IJ.log("Length in pixels is " + output);
-	
-	     //Close the result image
-	     imp3.close();
-	
-	     IJ.log("Enlarging object by 2 microns");
+				 IJ.log("Getting radius of object");
 
-	     IJ.run(labelImage, "3D Fast Filters","filter=Maximum radius_x_unit="+rawCal.getRawX(2.0)+" radius_y_unit="+rawCal.getRawY(2.0)+" radius_z_unit="+rawCal.getRawZ(2.0)+" algorithm=Isotropic Nb_cpus=4");
-	     enlargedImage = WindowManager.getImage("Maximum");  
-
-		 labelImage.show();
-		 enlargedImage.show();
-	     
-	     //IJ.run(enlargedImage, "Maximum 3D...", "x=" + rawCal.getRawX(2.0) + " y=" + rawCal.getRawY(2.0) + " z=" + rawCal.getRawZ(2.0) + "");
-	     //labelImage.show();
-		 
-	     diffImage = ic.run("Difference create stack", enlargedImage, labelImage);
-	     diffImage.show();
-	     diffImage.setTitle("Diff");
-	
-	     IJ.log("Finding volume of enlarged object");
-	
-	     //Use this image to get out to the volume that we're checking for overlap within
-	     output = IJ.runMacro("setBatchMode(true); run(\"3D Manager\"); selectWindow(\"Diff\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Measure3D(0, \"Vol\", measure); Ext.Manager3D_Close(); asString = toString(measure); return asString;");
-	     volumeChecking = Double.valueOf(output);
-	
-	     IJ.log("Volume of enlarged object: " + output);
-
-		 enlargedImage.changes = false;
-		 labelImage.changes = false;
+				 //We show our imp3 and distance map images and create a string of where we should save and retrieve the 3D roi of the skeleton of our object and pass this to the runMacro command so that we can use
+				 //the 3D manager to measure the grey values in the distance map along the 3D roi of the skeleton
+				 imp3.show();
+				 dmap.show();
+				 String saveDir = (processed.getParent() + "/Roi.zip");
+				 String output = IJ.runMacro("setBatchMode(true); saveDir = getArgument(); run(\"3D Manager\"); selectWindow(\"Result\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Save(saveDir); Ext.Manager3D_Close(); run(\"3D Manager\"); Ext.Manager3D_Load(saveDir); selectWindow(\"dmap\"); Ext.Manager3D_Quantif3D(0, \"Mean\", quantif); Ext.Manager3D_Close(); textForm = toString(quantif); return textForm;", saveDir);
+				 
+				 //We return the mean grey value of the 3D skeleton ROI
+				 meanValue = Double.valueOf(output);
+				 
+				 //Close the result image
+			     closeImage(imp3, false);
 			
-	     enlargedImage.close();
-	     labelImage.close();
-	
-	     IJ.log("Finding pixels from isolectin within our ROI");
-	
-	     //Calculate the isolectin staining that is within our ROI to check
-	     ImageCalculator ic = new ImageCalculator();
-	     IB4Overlap = ic.run("AND create stack", isoImageProc, diffImage);
-	     IB4Overlap.show();
-	     IB4Overlap.setTitle("IB4Overlap");
-	
-		 IJ.log("Getting volume of pixels within ROI");
+			     //Use the skeleton of to read out the radius of the section in our distance map
+			     IJ.log("Radius is " + output);
+			     IJ.log("Getting skeleton length of object");
+			
+			     //Get out the volume in pixels of the skeleton (length)
+			     String output = IJ.runMacro("setBatchMode(true); saveDir = getArgument(); run(\"3D Manager\"); Ext.Manager3D_Load(saveDir); Ext.Manager3D_Measure3D(0, \"Vol\", vol); asString = toString(vol); print(asString); Ext.Manager3D_Close(); return asString;", saveDir);
+			     length = Double.valueOf(output); // returned in units
+			
+			     IJ.log("Length in pixels is " + output);
+		
+			}
 
-		 IB4Overlap.show();
-	
-	     //Use the 3D manager to get out the volume within this ROI
-	     output = IJ.runMacro("setBatchMode(true); selectWindow(\"IB4Overlap\"); run(\"Auto Threshold\", \"method=Default white stack\"); run(\"Z Project...\", \"projection=[Max Intensity]\"); selectWindow(\"MAX_IB4Overlap\"); run(\"Invert\", \"stack\");  run(\"Create Selection\"); print(\"Selection\" + selectionType()); if(selectionType() == -1) { run(\"Select None\"); asString = \"0\"; run(\"Invert\", \"stack\"); selectWindow(\"MAX_IB4Overlap\"); run(\"Close\"); return asString; } else {  selectWindow(\"MAX_IB4Overlap\"); run(\"Close\"); selectWindow(\"IB4Overlap\"); run(\"Select None\"); run(\"3D Manager\"); Ext.Manager3D_AddImage();  Ext.Manager3D_Measure3D(0, \"Vol\", measure); Ext.Manager3D_Close(); asString = toString(measure); return asString;");
-	     overlappingVolume = Double.valueOf(output);
-	
-	     IJ.log("Overlapping pixels: " + output);
-	
-	     IB4Overlap.changes = false;
-	     IB4Overlap.close();
-	     diffImage.close();
+			 //We now enlarge our object in 3D by 2 microns in all directions so we can measure the overlap of the isolectin staining within this radius of our vessel object
+		     IJ.log("Enlarging object by 2 microns");
+
+			 //We use the maximum fast filter in 3D on our object image and its calibration values to create a new image of our object enlarged and assign this to a variable
+		     IJ.run(labelImage, "3D Fast Filters","filter=Maximum radius_x_unit="+rawCal.getRawX(2.0)+" radius_y_unit="+rawCal.getRawY(2.0)+" radius_z_unit="+rawCal.getRawZ(2.0)+" algorithm=Isotropic Nb_cpus=4");
+		     ImagePlus enlargedImage = WindowManager.getImage("Maximum");  
+
+			 //Here we find the difference pixels between the enlarged and non-enlarged object and assign this to a variable
+		     diffImage = ic.run("Difference create stack", enlargedImage, labelImage);
+		     diffImage.show();
+		     diffImage.setTitle("Diff");
+		
+		     IJ.log("Finding volume of enlarged object");
+		
+		     //Use this image to get out to the volume that we're checking for overlap within i.e. the volume of the difference image in 3D
+		     String output = IJ.runMacro("setBatchMode(true); run(\"3D Manager\"); selectWindow(\"Diff\"); Ext.Manager3D_AddImage(); Ext.Manager3D_Measure3D(0, \"Vol\", measure); Ext.Manager3D_Close(); asString = toString(measure); return asString;");
+		     volumeChecking = Double.valueOf(output);
+
+		     //Close the enlarged image, and object image now we're done with them
+  			 closeImage(enlargedImage, false);
+  			 closeImage(labelImage, false);
+			
+		     IJ.log("Volume of enlarged object: " + output);
+		     IJ.log("Finding pixels from isolectin within our ROI");
+		
+		     //Calculate the isolectin staining that is within our ROI to check and assign that to a new variable
+		     ImageCalculator ic = new ImageCalculator();
+		     ImagePlus IB4Overlap = ic.run("AND create stack", isoImageProc, diffImage);
+		     IB4Overlap.show();
+		     IB4Overlap.setTitle("IB4Overlap");
+		
+			 IJ.log("Getting volume of pixels within ROI");
+
+			 //Use the 3D manager to get out the volume within this RO I
+			 IB4Overlap.show();
+		     String output = IJ.runMacro("setBatchMode(true); selectWindow(\"IB4Overlap\"); run(\"Auto Threshold\", \"method=Default white stack\"); run(\"Z Project...\", \"projection=[Max Intensity]\"); selectWindow(\"MAX_IB4Overlap\"); run(\"Invert\", \"stack\");  run(\"Create Selection\"); print(\"Selection\" + selectionType()); if(selectionType() == -1) { run(\"Select None\"); asString = \"0\"; run(\"Invert\", \"stack\"); selectWindow(\"MAX_IB4Overlap\"); run(\"Close\"); return asString; } else {  selectWindow(\"MAX_IB4Overlap\"); run(\"Close\"); selectWindow(\"IB4Overlap\"); run(\"Select None\"); run(\"3D Manager\"); Ext.Manager3D_AddImage();  Ext.Manager3D_Measure3D(0, \"Vol\", measure); Ext.Manager3D_Close(); asString = toString(measure); return asString;");
+		     overlappingVolume = Double.valueOf(output);
+		     IJ.log("Overlapping pixels: " + output);
+
+			 //Close the overlap image since we're done with it now
+		     closeImage(IB4Overlap, false);
+		     closeImage(diffImage, false);
+
+		 }
 	
 	     //Fill our results table with the values of interest
 	     customRT.setValue("Radii", objectsMeasured, meanValue);
@@ -805,6 +802,7 @@ for (i = 0; i < folderList.length; i++) {
 	     customRT.setValue("Volume Occupied", objectsMeasured, overlappingVolume);
 	     customRT.setValue("Percentage Occupied", objectsMeasured, overlappingVolume / volumeChecking);
 
+		 //Increase the value of our objectsMeasures counter
 	     objectsMeasured++;
 	
 	     customRT.show("Testing");
@@ -818,8 +816,13 @@ for (i = 0; i < folderList.length; i++) {
 	    IJ.log("Results saved");
 	
 	    //Close all our windows
-	    IJ.run(vesselImageProc, "Close All", "");
+	    closeImage(dmap, false);
+	    closeImage(skeleton, false);
+	    closeImage(isoImageProc, false);
+	    closeImage(vesselImageProc, false);
+	    WindowManager.closeAll();
 
+		//Get out the time we finished processing this image and print it
 	    Calendar cal = Calendar.getInstance();
         Date date=cal.getTime();
         DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
@@ -835,5 +838,4 @@ for (i = 0; i < folderList.length; i++) {
 	 }
 	}
    }
-  }
 
