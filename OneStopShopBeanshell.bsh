@@ -8,6 +8,7 @@
 //Dependencies:
 //Skeletonizes 2D/3D and analyze skeleton
 //Voxel Counter and MultiStackReg
+//3D suite
 
 import ij.IJ; //Import this so that we can use imageJ to opens the image
 import ij.gui.GenericDialog;//Import so we can create dialog boxes
@@ -257,7 +258,7 @@ public static visualiseSkel(ImagePlus[] images) {
 	rawImage.show();
 
 	//Run the distance map on the thresholded image copy
-	IJ.run("3D Distance Map", "map=EDT image="+rawImage.getTitle()+" mask=None threshold=1");
+	IJ.run("3D Distance Map", "map=EDT image="+rawImage.getTitle()+" mask=Same threshold=1");
 	dmap = IJ.getImage();
 
 	images[3] = dmap;
