@@ -775,14 +775,14 @@ if(choices[0] == true) {
 					}
 				}
 	
-				//We open the image and get it's name, and convert to 8 bit
+				//We open the image and get it's name
 				imp=IJ.openImage(file.getAbsolutePath());
-				IJ.run(imp, "8-bit", "");
 
 				IJ.log("Registering image");
 
 				imp.show();
-			
+				IJ.run(imp, "8-bit", "");
+
 				//Here we register the open image using the translation technique
 				IJ.run(imp, "MultiStackReg", ""+imp.getTitle()+" action_1=Align file_1=[] stack_2=None action_2=Ignore file_2=[] transformation=Translation");
 	
