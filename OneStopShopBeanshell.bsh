@@ -775,9 +775,10 @@ if(choices[0] == true) {
 					}
 				}
 	
-				//We open the image and get it's name
+				//We open the image and get it's name, and convert to 8 bit
 				imp=IJ.openImage(file.getAbsolutePath());
-	
+				IJ.run(imp, "8-bit", "");
+
 				IJ.log("Registering image");
 
 				imp.show();
