@@ -707,11 +707,13 @@ String dir = userDir.getDirectory();
 
 String [] channelSelection = {"1", "2", "3", "4"};
 String [] channels = {"ch_1", "ch_2", "ch_3", "ch_4"};
+String [] imageType = {"Confocal", "2P"};
 
-//Ask the user to input the string they want to use to identify 2P vessel morphology experiments
+//Get user input re: string to search for, channel, and whether the image is confocal or 2P
 GenericDialog userInput  = new GenericDialog("User Inputs");
 userInput.addStringField("String to identify vessel morphology experiments", "WideFOV", 8);
 userInput.addChoice("Which channel are the vessels in?", channelSelection, "2");
+userInput.addChoice("Are the images confocal or 2P?", imageType, "2P");
 userInput.showDialog();
 
 //Return this input as a lower case string
@@ -719,6 +721,9 @@ String toFind = userInput.getStringFields().get(0).getText().toLowerCase();
 
 //Get channel chosen by the user
 int channelChoice = userInput.getNextChoiceIndex();
+
+//Get out the choice of confocal vs 2P
+int imageChoice = userInput.getNextChoiceIndex();
 
 //Find files in the chosen directory that contain our string toFind
 File[] output = listFilesAndFilesSubDirectories(dir, toFind);
@@ -737,7 +742,9 @@ double volumeRemoved;
 boolean[] stagesDone = new boolean[3];
 //[0] is preprocessing, [1] is threhsolding, [2] is analyzing
 
+//Define the array to store calibration values
 double[] iniVariables = new double[4];
+//[0] is xSize, [1] is ySize, [2] is zSize, [3] is FperZ
 
 if(choices[0] == true) {
 
@@ -761,23 +768,42 @@ if(choices[0] == true) {
 	
 				//This is a list of all the files in the parent directory
 				File[] parentFiles = parentDirFile.listFiles();
+				
+				//If we're working with a 2P image
+				if(imageChoice == 1) {
 	
-				//We loop through the files in the parent directory and if any of them are an ini file
-				for(File iniCheck:parentFiles) {
-					if(iniCheck.getAbsolutePath().toLowerCase().contains("ini") == true) {
-						
-						//Get out the ini variables using the associated ini file
-						iniVariables = getIniData(iniCheck);
-						//[0] is xSize, [1] is ySize, [2] is zSize, [3] is FperZ
-	
-						//Set the iniCheck variable to the biggest it could be so we exit the loop
-						iniCheck = parentFiles[parentFiles.length-1];
+					//We loop through the files in the parent directory and if any of them are an ini file
+					for(File iniCheck:parentFiles) {
+						if(iniCheck.getAbsolutePath().toLowerCase().contains("ini") == true) {
+							
+							//Get out the ini variables using the associated ini file
+							double[] iniVariables = getIniData(iniCheck);
+							//[0] is xSize, [1] is ySize, [2] is zSize, [3] is FperZ
+		
+							//Set the iniCheck variable to the biggest it could be so we exit the loop
+							iniCheck = parentFiles[parentFiles.length-1];
+						}
 					}
+
 				}
 	
 				//We open the image and get it's name
 				imp=IJ.openImage(file.getAbsolutePath());
 
+				//If we're working on a confocal image, get calibration values from the image itself
+				if(imageChoice == 0) {
+				
+					iniVariables[0] = imp.getCalibration().pixelWidth;
+					iniVariables[1] = imp.getCalibration().pixelHeight;
+					iniVariables[2] = imp.getCalibration().pixelDepth;
+
+					//Set frames per plane to 1 since it's confocal
+					iniVariables[3] = 1.00;
+	
+				}
+
+				//Print values
+				IJ.log("X: " + IJ.d2s(iniVariables[0], 10) + ", Y: " + IJ.d2s(iniVariables[1],10) + ", Z: "+ IJ.d2s(iniVariables[2], 10) + ", frames: " + IJ.d2s(iniVariables[3], 10));
 				IJ.log("Registering image");
 
 				imp.show();
@@ -790,14 +816,26 @@ if(choices[0] == true) {
 				
 				IJ.log("Group Z Projecting image");
 				
-				//We show the image before group Z projecting it and then closing it
-				IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+(int) iniVariables[3]+"");
-				imp.close();
+				//If we're wokring with 2P
+				if(imageChoice == 1) {
 					
-				//Here we get the averaged image and set it as avg and retrieve the image with the avg name
-				String avgName = "AVG_"+imp.getTitle();
-				avg = WindowManager.getImage(avgName);
-				avg.hide();
+					//We show the image before group Z projecting it and then closing it
+					IJ.run(imp, "Grouped Z Project...", "projection=[Average Intensity] group="+(int) iniVariables[3]+"");
+
+					//Here we get the averaged image and set it as avg and retrieve the image with the avg name
+					String avgName = "AVG_"+imp.getTitle();
+					avg = WindowManager.getImage(avgName);
+					avg.hide();
+
+				//Else
+				} else {
+					
+					avg = imp.duplicate();
+					avg.hide();
+					
+				}
+
+				imp.close();
 	
 				IJ.log("Converting to 8-bit");
 			
@@ -817,6 +855,8 @@ if(choices[0] == true) {
 				avg.close();
 	
 				IJ.log("Preprocessing for " + file.getAbsolutePath() + " complete");
+
+				new WaitForUserDialog("Check image", "Make sure that vessels are in white on a black background, then proceed").show();
 	
 			} else {
 				IJ.log("Image already preprocessed");
