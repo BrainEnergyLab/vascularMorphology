@@ -750,9 +750,29 @@ if(choices[0] == true) {
 
 	//Here we go through our list of file locations
 	for (File file:output) {
+
+	//Create a boolean to store whether to proceed with preprocessing or not
+	boolean proceed = false;
 		
-		//If the file is ch_2, then we get the stages done i.e. whether we've done preprocessing, threhsolding, or skeleton analysis
-		if(file.getAbsolutePath().contains(channels[channelChoice]) == true && file.getParent().toLowerCase().contains(toFind) == true) {
+		//If we're working with a 2P image
+		if(imageChoice == 1) {
+			
+			//If the file is ch_2, then we get the stages done i.e. whether we've done preprocessing, threhsolding, or skeleton analysis
+			if(file.getAbsolutePath().contains(channels[channelChoice]) == true && file.getParent().toLowerCase().contains(toFind) == true) {
+				proceed = true;
+			}
+
+		} else {
+
+			//If we find the string in the folderthen proceed
+			if(file.getParent().toLowerCase().contains(toFind) == true) {
+				proceed = true;
+			}
+
+		}
+
+		//If we're proceeding
+		if(proceed == true) {
 	
 			IJ.log("Checking analysis status of " + file.getAbsolutePath());
 			stagesDone = checkImageStatus(file, stagesDone);
@@ -799,6 +819,14 @@ if(choices[0] == true) {
 
 					//Set frames per plane to 1 since it's confocal
 					iniVariables[3] = 1.00;
+
+					//[0] is width, [1] is height, [2] is channels, [3] is slices, [4] is frames
+					dims = imp.getDimensions();
+
+					//Get out the channel chosen by the user
+					imp2 = new Duplicator().run(imp, (channelChoice+1), (channelChoice+1), 1, dims[3], 1, 1);
+					imp.close();
+					imp = imp2;
 	
 				}
 
@@ -855,8 +883,6 @@ if(choices[0] == true) {
 				avg.close();
 	
 				IJ.log("Preprocessing for " + file.getAbsolutePath() + " complete");
-
-				new WaitForUserDialog("Check image", "Make sure that vessels are in white on a black background, then proceed").show();
 	
 			} else {
 				IJ.log("Image already preprocessed");
