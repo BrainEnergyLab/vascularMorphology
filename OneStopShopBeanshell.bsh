@@ -667,6 +667,74 @@ public static getIniData(File iniCheck) {
 					
 }
 
+//Function to decide whether to proceed based on our image choice (confocal or 2P), current file we're checking, the
+//channel that we want to work with (though this is only relevant for 2P), and the string we want to match to
+public static proceedCheck(int imageChoice, File file, int channelChoice, String[] channels, String toFind) {
+
+	//Create a boolean to store whether to proceed with preprocessing or not
+	boolean proceed = false;
+		
+	//If we're working with a 2P image
+	if(imageChoice == 1) {
+			
+	//If the file is ch_2, then we get the stages done i.e. whether we've done preprocessing, threhsolding, or skeleton analysis
+		if(file.getAbsolutePath().contains(channels[channelChoice]) == true && file.getParent().toLowerCase().contains(toFind) == true) {
+			proceed = true;
+		}
+
+	} else {
+
+		//If we find the string in the folderthen proceed
+		if(file.getParent().toLowerCase().contains(toFind) == true) {
+			proceed = true;
+		}
+	}
+
+	return proceed;
+}
+
+//Function to fill our iniVariables array with appropriate info depending on whether the image is
+//2P or confocal
+public static getIniByImage(int imageChoice, File[] parentFiles, ImagePlus imp) {
+
+	//If we're working with a 2P image
+	if(imageChoice == 1) {
+	
+		//We loop through the files in the parent directory and if any of them are an ini file
+		for(File iniCheck:parentFiles) {
+			if(iniCheck.getAbsolutePath().toLowerCase().contains("ini") == true) {
+							
+				//Get out the ini variables using the associated ini file
+				double[] iniVariables = getIniData(iniCheck);
+				//[0] is xSize, [1] is ySize, [2] is zSize, [3] is FperZ
+		
+				//Set the iniCheck variable to the biggest it could be so we exit the loop
+				iniCheck = parentFiles[parentFiles.length-1];
+			}
+		}
+
+	}
+
+	//If we're working with a confocal image
+	if(imageChoice == 0) {
+
+		double[] iniVariables = new double[4];
+
+		
+		iniVariables[0] = imp.getCalibration().pixelWidth;
+		iniVariables[1] = imp.getCalibration().pixelHeight;
+		iniVariables[2] = imp.getCalibration().pixelDepth;
+
+		//Set frames per plane to 1 since it's confocal
+		iniVariables[3] = 1.00;
+
+		
+	}
+
+	return iniVariables;
+	
+}
+
 //Here we create a dialog box so the user can choose which aspects of processing to go through with - each choice runs in its entirety across the directory before proceeding onto the next one
 String[] processingChoices = {"Process raw images - registration, group averaging", "Generate thresholded images from preprocessed stacks", "Analyze skeleton and distance map of thresholded stacks"};
 GenericDialog processing = new GenericDialog("What analysis steps do you want to run?");
@@ -751,25 +819,8 @@ if(choices[0] == true) {
 	//Here we go through our list of file locations
 	for (File file:output) {
 
-	//Create a boolean to store whether to proceed with preprocessing or not
-	boolean proceed = false;
-		
-		//If we're working with a 2P image
-		if(imageChoice == 1) {
-			
-			//If the file is ch_2, then we get the stages done i.e. whether we've done preprocessing, threhsolding, or skeleton analysis
-			if(file.getAbsolutePath().contains(channels[channelChoice]) == true && file.getParent().toLowerCase().contains(toFind) == true) {
-				proceed = true;
-			}
-
-		} else {
-
-			//If we find the string in the folderthen proceed
-			if(file.getParent().toLowerCase().contains(toFind) == true) {
-				proceed = true;
-			}
-
-		}
+		//Check if our current file matches what we want to work with
+		proceed = proceedCheck(imageChoice, file, channelChoice, channels, toFind);
 
 		//If we're proceeding
 		if(proceed == true) {
@@ -788,37 +839,15 @@ if(choices[0] == true) {
 	
 				//This is a list of all the files in the parent directory
 				File[] parentFiles = parentDirFile.listFiles();
-				
-				//If we're working with a 2P image
-				if(imageChoice == 1) {
-	
-					//We loop through the files in the parent directory and if any of them are an ini file
-					for(File iniCheck:parentFiles) {
-						if(iniCheck.getAbsolutePath().toLowerCase().contains("ini") == true) {
-							
-							//Get out the ini variables using the associated ini file
-							double[] iniVariables = getIniData(iniCheck);
-							//[0] is xSize, [1] is ySize, [2] is zSize, [3] is FperZ
-		
-							//Set the iniCheck variable to the biggest it could be so we exit the loop
-							iniCheck = parentFiles[parentFiles.length-1];
-						}
-					}
-
-				}
 	
 				//We open the image and get it's name
 				imp=IJ.openImage(file.getAbsolutePath());
 
+				//Get out the ini calibration info
+				iniVariables = getIniByImage(imageChoice, parentFiles, imp);
+
 				//If we're working on a confocal image, get calibration values from the image itself
 				if(imageChoice == 0) {
-				
-					iniVariables[0] = imp.getCalibration().pixelWidth;
-					iniVariables[1] = imp.getCalibration().pixelHeight;
-					iniVariables[2] = imp.getCalibration().pixelDepth;
-
-					//Set frames per plane to 1 since it's confocal
-					iniVariables[3] = 1.00;
 
 					//[0] is width, [1] is height, [2] is channels, [3] is slices, [4] is frames
 					dims = imp.getDimensions();
@@ -898,7 +927,12 @@ if(choices[1] == true) {
 	
 	//Loop through the list of file locations, and find one that is in channel 2
 	for (File file:output) {
-		if(file.getAbsolutePath().contains(channels[channelChoice]) == true) {
+
+		//Check if our current file matches what we want to work with
+		proceed = proceedCheck(imageChoice, file, channelChoice, channels, toFind);
+
+		//If we're proceeding
+		if(proceed == true) {
 			
 			//Get the image status
 			stagesDone = checkImageStatus(file, stagesDone);	
@@ -912,19 +946,7 @@ if(choices[1] == true) {
 	
 				//This is a list of all the files in the parent directory
 				File[] parentFiles = parentDirFile.listFiles();
-	
-				//We loop through the files in the parent directory and if any of them are an ini file
-				for(File iniCheck:parentFiles) {
-					if(iniCheck.getAbsolutePath().toLowerCase().contains("ini") == true) {
-						
-						//Get out the ini variables using the associated ini file
-						iniVariables = getIniData(iniCheck);
-						//[0] is xSize, [1] is ySize, [2] is zSize, [3] is FperZ
-	
-						//Set the iniCheck variable to the biggest it could be so we exit the loop
-						iniCheck = parentFiles[parentFiles.length-1];
-					}
-				}
+
 	
 				//We loop through the files in the parent directory and if any of them are the preprocessed file, open it
 				for(File imageCheck:parentFiles) {
@@ -932,6 +954,9 @@ if(choices[1] == true) {
 						avg = IJ.openImage(imageCheck.getAbsolutePath());
 					}
 				}
+
+				//Get out the ini calibration info
+				iniVariables = getIniByImage(imageChoice, parentFiles, avg);
 				
 				//Create a backup of the input image that we can revert to during image processing if we want a clean slate
 				babyFresh=avg.duplicate();
@@ -1313,7 +1338,13 @@ if(choices[2] == true) {
 
 	//Loop through our files, and when we match a ch_2 image, check stages done
 	for (File file:output) {
-		if(file.getAbsolutePath().contains(channels[channelChoice]) == true) {	
+		
+		//Check if our current file matches what we want to work with
+		proceed = proceedCheck(imageChoice, file, channelChoice, channels, toFind);
+
+		//If we're proceeding
+		if(proceed == true) {
+		
 			stagesDone = checkImageStatus(file, stagesDone);	
 	
 			IJ.log(file.getAbsolutePath());
@@ -1335,20 +1366,6 @@ if(choices[2] == true) {
 	
 				//This is a list of all the files in the parent directory
 				File[] parentFiles = parentDirFile.listFiles();
-
-				
-				//We loop through the files in the parent directory and if any of them are an ini file
-				for(File iniCheck:parentFiles) {
-					if(iniCheck.getAbsolutePath().toLowerCase().contains("ini") == true) {
-						
-						//Get out the ini variables using the associated ini file
-						iniVariables = getIniData(iniCheck);
-						//[3] is FperZ, [0] is xSize, [1] is ySize, [2] is zSize
-	
-						//Set the iniCheck variable to the biggest it could be so we exit the loop
-						iniCheck = parentFiles[parentFiles.length-1];
-					}
-				}
 	
 				//Now we go through the directory and look for and load the skeleton, distance map, and any mask removed image if it exists
 				for(File imageFind : parentFiles) {
@@ -1358,7 +1375,10 @@ if(choices[2] == true) {
 						//Here we fill our variables with the dimensions of the average image etc.
 						//[0] is width, [1] is height, [2] is channels, [3] is slices, [4] is frames
 						avgDimensions = avg.getDimensions();
-	
+
+						//Get out the ini calibration info
+						iniVariables = getIniByImage(imageChoice, parentFiles, avg);
+
 						//Calculate the volume of the image in calibrated units
 						avgVolume=1;
 
@@ -1367,6 +1387,7 @@ if(choices[2] == true) {
 						for(i=0; i<imageDimensions.length; i++) {
 							avgVolume = imageDimensions[i] * iniVariables[i] * avgVolume;
 						}
+
 						
 					} else if(imageFind.getAbsolutePath().toLowerCase().contains("dmap") == true) {
 						dmap = IJ.openImage(imageFind.getAbsolutePath());
