@@ -8,13 +8,17 @@
 //Dependencies:
 //Skeletonizes 2D/3D and analyze skeleton
 //Voxel Counter and MultiStackReg
-//3D suite
+//3D suite and morphoLibJ to select labelled skeletons
+
+//So we can sort arrays
+import java.util.Arrays;
 
 import ij.IJ; //Import this so that we can use imageJ to opens the image
 import ij.gui.GenericDialog;//Import so we can create dialog boxes
 import ij.gui.WaitForUserDialog;//Import to allow us to wait for user input
 import ij.gui.NonBlockingGenericDialog; //Import to allow us to create non blocking dialogs
 import ij.ImagePlus;//Import to allow us to create or alter images
+import ij.ImageStack; //Import for pixel values
 import ij.WindowManager;//Import to allow us to manager windows
 import ij.measure;//Import so we can measure things
 import ij.measure.Calibration; //Import so we can access and set calibration values
@@ -508,6 +512,12 @@ class skeletonValues {
 		double branchNo, double coordNo, double radius) {
 		super();
 		
+		this.xCoord = xCoord;
+		this.yCoord = yCoord;
+		this.zCoord = zCoord;
+		this.xCal = xCal;
+		this.yCal = yCal;
+		this.zCal = zCal;
 		this.skelNo = skelNo;
 		this.branchNo = branchNo;
 		this.coordNo = coordNo;
@@ -523,11 +533,11 @@ class skeletonValues {
 //This creates a comparator object that returns whether the skeletonvalues at two skeletonValues points (a1 and a2) are different or equal by altering the returned int accordingly
 static final Comparator ORDER_BY_SKELNAME = new Comparator() {
 	public int compare(skeletonValues a1, skeletonValues a2) {
-		if(a1.skelNo<a2.skelNo) {
+		if( a1.skelNo<  a2.skelNo) {
 			return -1;
-		} else if (a1.skelNo>a2.skelNo) {
+		} else if ( a1.skelNo>  a2.skelNo) {
 			return 1;
-		} else if (a1.skelNo == a2.skelNo) {
+		} else if ( a1.skelNo ==  a2.skelNo) {
 			return 0;
 		}
 	}
@@ -561,7 +571,6 @@ static final Comparator ORDER_BY_COORD = new Comparator() {
 
 //This creates a final comparator which is a summary of the comparators we've previously defined - essentially, if skelNo matches, we order by branchNo, if that matches we order by Coord, else we stop at whichever
 //step the values don't match
-
 //The reason we're using comparators here is so we can use Arrays.sort(T[] a, Comparator<? super T> c) where we can input an array and then use a comparator to sort it - the ORDER_BY_RULES comparator is
 //essentially a summary of all the others and so allows us to sort by multiple columns
 static final Comparator ORDER_BY_RULES = new Comparator() {
@@ -697,6 +706,9 @@ public static proceedCheck(int imageChoice, File file, int channelChoice, String
 //2P or confocal
 public static getIniByImage(int imageChoice, File[] parentFiles, ImagePlus imp) {
 
+	//Declare variable here
+	double[] iniVariables = new double[4];
+
 	//If we're working with a 2P image
 	if(imageChoice == 1) {
 	
@@ -705,7 +717,7 @@ public static getIniByImage(int imageChoice, File[] parentFiles, ImagePlus imp) 
 			if(iniCheck.getAbsolutePath().toLowerCase().contains("ini") == true) {
 							
 				//Get out the ini variables using the associated ini file
-				double[] iniVariables = getIniData(iniCheck);
+				iniVariables = getIniData(iniCheck);
 				//[0] is xSize, [1] is ySize, [2] is zSize, [3] is FperZ
 		
 				//Set the iniCheck variable to the biggest it could be so we exit the loop
@@ -713,13 +725,8 @@ public static getIniByImage(int imageChoice, File[] parentFiles, ImagePlus imp) 
 			}
 		}
 
-	}
-
-	//If we're working with a confocal image
-	if(imageChoice == 0) {
-
-		double[] iniVariables = new double[4];
-
+	//Otherwise if we're working with a confocal image
+	} else if(imageChoice == 0) {
 		
 		iniVariables[0] = imp.getCalibration().pixelWidth;
 		iniVariables[1] = imp.getCalibration().pixelHeight;
@@ -732,6 +739,83 @@ public static getIniByImage(int imageChoice, File[] parentFiles, ImagePlus imp) 
 	}
 
 	return iniVariables;
+	
+}
+
+//Function to retrieve the value of pixel coords stored as a double array (x,y,z) in an ArrayList in the imagestack dmapStack
+public static getRadiiFunc(ImageStack dmapStack, ArrayList coordinateValues) {
+
+	//An arraylist to store radius values for junction voxels
+	ArrayList junctionValues = new ArrayList();
+		
+	//Loop through our coords
+	for(i=0; i < coordinateValues.size(); i++) {
+		junctionValues.add(dmapStack.getVoxel((int) coordinateValues.get(i)[0], (int) coordinateValues.get(i)[1], (int) coordinateValues.get(i)[2]));
+	}
+
+	return junctionValues;
+}
+
+//Function to extract raw and calibrated coordinates, as well as skel, rbanch, and coordNo labels for each coordinate,
+//from our coordinateValues object (using multiplier to get calibrated values), as well sa the associated radius values 
+//from pixelValues. These are stored in a skeletonValues array that we order by skel, branch, and coord and then return as radiiTable
+public static fillSkelValsObj(ArrayList[] coordinateValues, double[][] multiplier, ArrayList pixelValues) {
+
+	//Here we create a skeletonValues array to store the data from our radius measurements - this is so that we can sort the skeletonValues
+	//array using skeleton, branch, and coordinate number in ascending order, so that we simply have to transpose our radii
+	//onto our 3D coords data, rather than having to match the coordinates between arrays
+	skeletonValues[] radiiTable = new skeletonValues[coordinateValues[0].size()];
+
+	//Loop through all skeleton points
+	for(thirdD = 0; thirdD < coordinateValues[0].size(); thirdD++) {
+
+		//Create a new double array to store our coordinate and radius data in the properly formatted manner
+		double[] skeletonValuesToUse = new double[10];
+					
+		//Set the index to fill to 0 to begin
+		indexToUse = 0;
+
+		//Loop through all data in our coordinateValues array and fill each index of the skeletonValuesToUse array with the data - i.e.
+		//xcoord, y coord, z coord, xcal, y cal, zcal, skelNo, branchNo, coordNo, increasing index each time
+		for(calib = 0; calib<3; calib++) {
+			for(currCor = 0; currCor < 3; currCor++) {
+				if(calib<2) {
+					skeletonValuesToUse[indexToUse] = coordinateValues[0].get(thirdD)[currCor]*multiplier[calib][currCor];
+				} else {
+					skeletonValuesToUse[indexToUse] = coordinateValues[1].get(thirdD)[currCor]*multiplier[calib][currCor];
+				}
+				indexToUse++;
+			}
+		}
+				
+		//Once filled with skeleton data, we then add the radius value for that coordinate and fill an index of our radiitable with the values we stored in our skeletonValuestoUse array
+		//and we reset indexToUse to 0	
+		skeletonValuesToUse[indexToUse] = pixelValues.get(thirdD);
+		radiiTable[thirdD] = new skeletonValues(skeletonValuesToUse[0], skeletonValuesToUse[1], skeletonValuesToUse[2], skeletonValuesToUse[3], skeletonValuesToUse[4], skeletonValuesToUse[5], skeletonValuesToUse[6], skeletonValuesToUse[7], skeletonValuesToUse[8], skeletonValuesToUse[9]);
+		//radiiTable[thirdD] = new skeletonValues(skeletonValuesToUse);
+
+	}
+
+	return radiiTable;
+}
+
+//Function to create a results table that lists the coords, calibrated coords, skel/branch info, and radius, for every point
+public static makeCoordsResults(skeletonValues[] sortedRadii) {
+
+	//Create a new results table to output the 3D skeleton information
+	rt = new ResultsTable();
+				
+	//Create a string array of headers we'll use on our results table
+	String[] resultsHeaders = {"X Coordinate", "Y Coordinate", "Z Coordinate", "Calibrated X", "Calibrated Y", "Calibrated Z", "Skeleton Number", "Branch Number", "Coordinate Number", "Radius"};
+				
+	for(currCoord = 0; currCoord < sortedRadii.length; currCoord++) {
+		double[] output = {sortedRadii[currCoord].xCoord, sortedRadii[currCoord].yCoord,  sortedRadii[currCoord].zCoord,  sortedRadii[currCoord].xCal,  sortedRadii[currCoord].yCal,  sortedRadii[currCoord].zCal,  sortedRadii[currCoord].skelNo,  sortedRadii[currCoord].branchNo,  sortedRadii[currCoord].coordNo,  sortedRadii[currCoord].radius};
+		for(currHeader = 0; currHeader < resultsHeaders.length; currHeader++) {
+			rt.setValue(resultsHeaders[currHeader], currCoord, output[currHeader]);
+		}
+	}
+
+	return rt;
 	
 }
 
@@ -1388,7 +1472,6 @@ if(choices[2] == true) {
 							avgVolume = imageDimensions[i] * iniVariables[i] * avgVolume;
 						}
 
-						
 					} else if(imageFind.getAbsolutePath().toLowerCase().contains("dmap") == true) {
 						dmap = IJ.openImage(imageFind.getAbsolutePath());
 					} else if(imageFind.getAbsolutePath().toLowerCase().contains("masks") == true) {
@@ -1428,91 +1511,101 @@ if(choices[2] == true) {
 					
 				// get graphs (one per skeleton in the image)
 				graph = skelResult.getGraph();
-					
-				//Create 2D arraylist to store the x, y, and z coordinates of each voxel, as well as their associated skeleton number, branch number, and their calibrated values
-				ArrayList[][] coordinateValues = new ArrayList[3][3];
-				//[0][0] is xCoord, [0][1] is yCoord, [0][2] is zCoord
-				//[1][0] is xCoord calibrated, [1][1] is yCoord calibrated, [1[2] is zCoord caibrated
-				//[2][0] is skeleton number, [2][1] is branch number, [2][2] is coordinate number
-				
+
+				//Create an arrayList to store in [0] the coordinates of skeleton, and in
+				//[1] the skel ID, branch No, and coordNo for that coordinates
+				ArrayList[] coordinateValues = new ArrayList[2];
+
 				//Fill with arraylists at all indices
-				for(i0=0; i0<3; i0++) {
-					for(i1=0; i1<3; i1++) {
-						coordinateValues[i0][i1] = new ArrayList();
-					}
+				for(i0=0; i0<2; i0++) {
+					coordinateValues[i0] = new ArrayList();
 				}
-				
-				//This is an array of what we need to multiple our coordinates by to get them calibrated (or not)
-				double[][] multiplier = {{1,1,1}, {iniVariables[0], iniVariables[1], iniVariables[2]}};
 				
 				// go through all skeletons
 				for(i=0 ; i < graph.length; i++ ) {
 					listEdges = graph[i].getEdges(); 
-					
+	
 					// go through all branches - j counts how many branches for each skeleton, our results table won't show data for skeletons without branches or coords
 					j=1;
 					for( Edge e : listEdges ) {	
 				
-						//These are arrays of the coordinates of the first and last pixels in the skeleton branch, with [0] being x, [1] y, and [2] z
-						double[] firstCoords = {(double) e.getV1().getPoints().get(0).x, (double) e.getV1().getPoints().get(0).y, (double) e.getV1().getPoints().get(0).z};
-						double[] lastCoords = {(double) e.getV2().getPoints().get(0).x, (double) e.getV2().getPoints().get(0).y, (double) e.getV2().getPoints().get(0).z};
-				
-						//Looping through 3 times (the 3 1D in allCoords) - to get the coordinates, calibrated coordinates, and skeleton labels
-						for(i0=0; i0<3; i0++) {	
-							
-							//Looping through 3 times (the 3 2D in allCoords) - to get the x, y, and z (or skel, branch, coord) details
-							for(i1=0; i1<3; i1++) {
-								
-								//If we're on our first 2 1D dimensions (coordinates and calibrated coordinates)
-								if(i0<2) {
-									
-									//Set the first values of allCoords[i0][i1] to the first pixel coordinates and multiply by multplier values 
-									coordinateValues[i0][i1].add(firstCoords[i1]*multiplier[i0][i1]);
-									
-									//Loop through all middle pixels, and set allCoords to those middle pixel values 
-									for(i2=1; i2<e.getSlabs().size()+1; i2++) {
-										
-										//Array to store the middle coordinate values
-										double[] middleCoords  = {(double) e.getSlabs().get(i2-1).x, (double) e.getSlabs().get(i2-1).y, (double) e.getSlabs().get(i2-1).z};
-										coordinateValues[i0][i1].add(middleCoords[i1]*multiplier[i0][i1]);
-									}
-									
-									//Set the last values to the final pixel values
-									coordinateValues[i0][i1].add(lastCoords[i1]*multiplier[i0][i1]);
-								
-								//If we're on our 3rd 1D dimension - skel, branch, and coord numbers
-								} else {
-									
-									//Set coordNo to 0 to start
-									coordNo=0;
-									
-									//Loop through all the pixel values
-									for(i2=0; i2<e.getSlabs().size()+2; i2++) {
-										
-										//Increase coordNo each time
-										coordNo++;
-										
-										//Create an array to store the skeleton, branch, and coordinate number values and then set these in the allCoords array
-										double[] skelInfo = {((double) (i+1)), ((double) j),((double) coordNo)};
-										coordinateValues[i0][i1].add(skelInfo[i1]);
-									}
-								}
+						//Set coordNo to 0 to start
+						coordNo=0;
+
+						//Loop through all points on the branch
+						for(i2=0; i2<e.getSlabs().size()+2; i2++) {
+
+							//Store the skel, branch, and coordNo for this point
+							int[] infCopy = {i+1, j, coordNo};
+							coordinateValues[1].add(infCopy);
+						
+							//Increase coordNo each time
+							coordNo++;
+
+							//Store the coords for the point
+							if(i2==0) {
+								//Array to store the middle coordinate values
+								double[] forCopy = {(double) e.getV1().getPoints().get(0).x, (double) e.getV1().getPoints().get(0).y, (double) e.getV1().getPoints().get(0).z};
+								coordinateValues[0].add(forCopy);
+							} else if(i2 == e.getSlabs().size()+1) {
+								double[] forCopy = {(double) e.getV2().getPoints().get(0).x, (double) e.getV2().getPoints().get(0).y, (double) e.getV2().getPoints().get(0).z};
+								coordinateValues[0].add(forCopy);
+							} else {
+								double[] forCopy = {(double) e.getSlabs().get(i2-1).x, (double) e.getSlabs().get(i2-1).y, (double) e.getSlabs().get(i2-1).z};
+								coordinateValues[0].add(forCopy);
 							}
+
 						}
-				
-						//Now we've finished with this branch, increase branch counter j
+						
+						//Increase branch counter
 						j++;
+					}
+				}
+			
+				//Get the labelled skeleton from the analyse output, extract labelled points by skelID
+				//Idea here is that beanShell code previously misses some coords, this way we're
+				//getting the coordinates directly from the skeleton image
+				labSkel = skel.getLabeledSkeletons();
+				ImagePlus labSkelP = new ImagePlus("labSkel", labSkel);
+
+				//Same as coordinateValues where [0] is for coords and [1] is for info
+				ArrayList[] skelJuncs = new ArrayList[2];
+				skelJuncs[0] = new ArrayList();
+				skelJuncs[1] = new ArrayList();
+					
+				for(i=0; i < graph.length; i++) {
+					
+					//Extract coordinates of labelled points - get out the coordinates for skeleton number (i+1), save and read
+					IJ.run(labSkelP, "Select Label(s)", "label(s)="+(i+1)+"");
+					out = WindowManager.getImage("labSkel-keepLabels");
+					out.hide();
+					IJ.run(out, "Save XY Coordinates...", "background=0 suppress process save=["+parentDir+"/skel.txt]");
+					out.close();
+					IJ.run("Results... ", "open=["+parentDir+"/skel.txt]");
+					ResultsTable skelPoints = ResultsTable.getResultsTable();
+					double[] xCoords = skelPoints.getColumnAsDoubles(0);
+					double[] yCoords = skelPoints.getColumnAsDoubles(1);
+					double[] zCoords = skelPoints.getColumnAsDoubles(2);
+
+					//Store our values in skelJuncs
+					for(currPoint = 0; currPoint < xCoords.length; currPoint++) {
+						double[] asDb = {xCoords[currPoint], (avgDimensions[1] - yCoords[currPoint]-1), zCoords[currPoint]};
+						skelJuncs[0].add(asDb);
+
+						int[] asInt = {(i+1), 1, currPoint+1};
+						skelJuncs[1].add(asInt);
 					}
 				}
 				
 				//Run analyze skeleton so we can get out the branch length and euclidean distance of all the skeleton branches
-				IJ.run(avg, "Analyze Skeleton (2D/3D)", "prune=[shortest branch] show");
+				IJ.run(avg, "Analyze Skeleton (2D/3D)", "prune=[none] show");
 				
 				//Get the results table, close it, then set the branch information table as the results table, and get its object reference
 				currResults = WindowManager.getWindow("Results");
 				currResults.dispose();
 				IJ.renameResults("Branch information", "Results");
 				ResultsTable branchInfo = ResultsTable.getResultsTable();
+				branchInfo.show("Results");
 				
 				//Here we create a double array to store the skeleton number, branch distance, and euclidean distance, from the branch info results table - we also create an int array to store the indices of
 				//these columns in the table
@@ -1546,160 +1639,124 @@ if(choices[2] == true) {
 						branchInfoColumns[3][skelIndex] = currentNo;
 					}
 				}
-				
+
+		
 				//Get the imagestack of our dmap image
 				dmapStack = dmap.getImageStack();
-				
-				//Create an arraylist to store pixel intensity values
-				ArrayList pixelValues = new ArrayList();
-				
-				//Loop through all skeleton points
-				for(i=0; i<coordinateValues[0][0].size(); i++) {
-					
-					//Get out the pixel value of each skeleton point in the stack and store it in our arraylist
-					pixelValues.add(dmapStack.getVoxel((int) coordinateValues[0][0].get(i), (int) coordinateValues[0][1].get(i), (int) coordinateValues[0][2].get(i)));
-				}
-				
-				//Here we create a skeletonValues array to store the data from our radius measurements - this is so that we can sort the skeletonValues
-				//array using skeleton, branch, and coordinate number in ascending order, so that we simply have to transpose our radii
-				//onto our 3D coords data, rather than having to match the coordinates between arrays
-				skeletonValues[] radiiTable = new skeletonValues[coordinateValues[0][0].size()];
-				
-				//Create a new double array to store our coordinate and radius data in the properly formatted manner
-				double[] skeletonValuesToUse = new double[10];
-				
-				//Loop through all skeleton points
-				for(thirdD = 0; thirdD < coordinateValues[0][0].size(); thirdD++) {
-					
-					//Set the index to fill to 0 to begin
-					indexToUse = 0;
-					
-					//Loop through all data in our coordinateValues array and fill each index of the skeletonValuesToUse array with the data - i.e.
-					//xcoord, y coord, z coord, xcal, y cal, zcal, skelNo, branchNo, coordNo, increasing index each time
-					for(column = 0; column<3; column++) {
-						for(row=0; row<3; row++) {
-							skeletonValuesToUse[indexToUse] = coordinateValues[column][row].get(thirdD);
-							indexToUse++;
-							}
-						}
-				
-					//Once filled with skeleton data, we then add the radius value for that coordinate and fill an index of our radiitable with the values we stored in our skeletonValuestoUse array
-					//and we reset indexToUse to 0	
-					skeletonValuesToUse[indexToUse] = pixelValues.get(thirdD);
-					radiiTable[thirdD] = new skeletonValues(skeletonValuesToUse[0], skeletonValuesToUse[1], skeletonValuesToUse[2], skeletonValuesToUse[3], skeletonValuesToUse[4], skeletonValuesToUse[5], skeletonValuesToUse[6], skeletonValuesToUse[7], skeletonValuesToUse[8], skeletonValuesToUse[9]);
-					//radiiTable[thirdD] = new skeletonValues(skeletonValuesToUse);
 
-					indexToUse=0;
-				}
+				//Get radii of all non-junction corodinates
+				pixelValues = getRadiiFunc(dmapStack, coordinateValues[0]);
+
+				//Get radii of coords from images
+				pixelJuncValues = getRadiiFunc(dmapStack, skelJuncs[0]);
+
+				//This is an array of what we need to multiple our coordinates by to get them calibrated (or not)
+				double[][] multiplier = {{1,1,1}, {iniVariables[0], iniVariables[1], iniVariables[2]}, {1,1,1}};
+
+				//Get a double[][] where first D is a single coordinate, and the second D is an array of x,y,z, calibrated x,y,z, skelNo, branchNo, coordNo, and radius
+				//for each coordinate
+				sortedRadii = fillSkelValsObj(coordinateValues, multiplier, pixelValues);
 				
 				//Here we sort our radiiTable first by skeletonNo, then by branchNo, then by coordinateNo
-				Arrays.sort(radiiTable, ORDER_BY_RULES);
-				
-				//Here we create a double array to store our now sorted radii, before we fill it with the radii values from our sorted radiiTable
-				double[] sortedRadii = new double[pixelValues.size()];
-				for(i=0; i<sortedRadii.length; i++) {
-					sortedRadii[i] = ((double) radiiTable[i].radius);
-				}	
-				
+				Arrays.sort(sortedRadii, ORDER_BY_RULES);
+
+				//Get radii for voxels from labelled images				
+				sortedJuncRadii = fillSkelValsObj(skelJuncs, multiplier, pixelJuncValues);
+
 				//This variable is to store the runningTotal of coordinate radii so that we can then divide it by the appropriate number
 				//of coordinate to get the average radius for a particular branch
 				double runningTotal=0;
 				
-				//Create an arraylist to store the average radius for each branch and the number of coordinates
-				ArrayList[] radiiandCoords = new ArrayList[2];
+				//Store our average radius for each branch, no. of coords in that branch, skelNo, and branchNo
+				ArrayList[] radiiandCoords = new ArrayList[4];
 				for(i=0; i<radiiandCoords.length; i++) {
 					radiiandCoords[i] = new ArrayList();
 				}
 				
 				//Create double arrays to store the previous coordinate values, and the current coordinate values so we can compare them
-				double[] prevValues = new double[4];
-				double[] currentValues = new double[3];
+				double[] nextValues = new double[3];
+				double[] currentValues = new double[4];
 				//[0] is skel, [1] is branch, [3] is number of coords, [4] is radii
 				
 				//Declare the current and previous indices - reason we have to do this is so that when we're on our final index, we can use different indices
 				int currentIndex;
-				int prevIndex;
+				int nextIndex;
 				
 				//Also declare a writeRadius boolean, which when true causes the code to output the average radius of a unique skeleton/branch combo
 				boolean writeRadius = false;
 				
-				//Here we loop through the length of all our coordinates +1 time since we're comparing two rows to each other, so we need
-				//an extra iteration to get the right number of radii
-				for(i=0; i<sortedRadii.length+1; i++) {
-				
-					//If we're not on our first or last index, we get the index of our current values and previous values
-					if(i>0 && i<sortedRadii.length) {
-						currentIndex = (int) i;
-						prevIndex = (int) i-1;
+				//Loop through all our coordinates
+				for(i=0; i<sortedRadii.length; i++) {
+						
+					//Get the radius for the current coordinate and set the currentIndex to i
+					currentIndex = (int) i;
 					
-					//If we're on our last index, we get the last and second last values, and set writeRadius to true (otherwise we end up with one fewer datapoints if the
-					//last index is the same as the second last)
-					} else if (i==sortedRadii.length) {
-						currentIndex = (int) i-1;
-						prevIndex = (int) i-2;
-						writeRadius = true;
+					//Add our current radius to our running total
+					runningTotal = runningTotal + sortedRadii[currentIndex].radius;
+
+					//If we're not at the end of the loop, set our nextIndex to the next coord else set to
+					//the previous one
+					if(i<sortedRadii.length-1) {
+						nextIndex = (int) i+1;
+					} else {
+						nextIndex = (int) i-1;
 					}
-				
-					if(i>0) {
-					
-						//Looping through 4 times so we can calculate the previous and current skel, branch, coordNo, and radius
-						for(i0=0; i0<4; i0++) {	
-							
-							//if we're in the first two loops, we get our skel, branch, and coordNo from the coordinateValues array - getting values for our current
-							//index and the index prior
-							if(i0<3) {
-								prevValues[i0] = coordinateValues[2][i0].get(prevIndex);
-								currentValues[i0] = coordinateValues[2][i0].get(currentIndex);	
-							
-							//If on the third loop we get our radius from our sorted radii array
-							} else {
-								prevValues[i0] = sortedRadii[prevIndex];
-							}
-						}
-					
-						//Increase the running total of radii using the previous radius and the previous running total
-						runningTotal = runningTotal + prevValues[3];
-					}
-				
-					//If the previous values dont match the current values (i.e. we're not on an index for a different branch/skel combo, set writeRadius to true
-					if(prevValues[0] != currentValues[0] || prevValues[1] != currentValues[1]) {
+
+					//Fill our next and current values with the skel, branch, and coordNo of our current
+					//and next coords
+					double[] nextValues = {sortedRadii[nextIndex].skelNo, sortedRadii[nextIndex].branchNo, sortedRadii[nextIndex].coordNo};
+					double[] currentValues = {sortedRadii[currentIndex].skelNo, sortedRadii[currentIndex].branchNo, sortedRadii[currentIndex].coordNo};
+
+					//If our next coord isn't the same skelNo and branchNo combo as our current, set writeRadius to T
+					if(nextValues[0] != currentValues[0] || nextValues[1] != currentValues[1]) {
 						writeRadius = true;
 					}
 				
 					//If our previous skel or previous branch doesnt match our current one, or we're on our last index
-					if (writeRadius == true) {
-						
-						//IJ.log(IJ.d2s(prevValues[0], 9) + " " + IJ.d2s(prevValues[1],9));
+					if(writeRadius == true) {
 						
 						//We calculate the number of coordinates with that associated unique skel + branch combo the work out the average radii based on that
 						//and store it in our averageRadii arrayList
-						noCoords = prevValues[2];
-				
-						//Fill our arrayList array with the values we want to store - average radius and the number of coordinates
+
+						//Number of coords is the coordNo in our currentCoord value
+						noCoords = currentValues[2];
+
 						radiiandCoords[0].add(runningTotal/noCoords);
 						radiiandCoords[1].add(noCoords);
+						radiiandCoords[2].add(currentValues[0]);
+						radiiandCoords[3].add(currentValues[1]);
 				
 						//Now that we're done with our current skel/branch combo, we reset running total to 0						
 						runningTotal = 0;
 				
 						//Set writeradius to false again
 						writeRadius = false;
+
 					}
 				}
 				
 				//Create a new results table to show all the branch info
 				finalTable = new ResultsTable();
 				
+				//These are the column names in our table as well as indices of where to get the infor for each column
 				String[] finalTableHeaders = {"Skeleton Number", "Branch Number", "Number of Coordinates", "Radius", "Branch Length", "Euclidean Distance"};
 				int[] indicesForFinalTable = {0,3,1,0,1,2};
-				
+	
 				//Loop through all the branch summary info, setting the skeleton, branch, distance, and euclidean distance from the original
 				//analyze skeleton results table, and setting the number of coordinates and radii from the calculated values
 				for(i=0; i<branchInfoColumns[0].length; i++) {
 					for(i0=0; i0<finalTableHeaders.length; i0++) {
+						
+						//If we're dealing with no. coords and radius
 						if(i0==2 || i0 ==3) {
-							if(i<radiiandCoords[indicesForFinalTable[i0]].size()) {
-							finalTable.setValue(finalTableHeaders[i0], i, radiiandCoords[indicesForFinalTable[i0]].get(i));
+
+							//Loop through our radiiandCoords array. if the current skel and branchNo match the skel and branchNo in the radiiandcoords,
+							//get values from there to set in resulst table
+							for(i1=0; i1< radiiandCoords[0].size(); i1++) {
+								if( (branchInfoColumns[0][i] == radiiandCoords[2].get(i1)) && (branchInfoColumns[3][i] == radiiandCoords[3].get(i1)) ) {
+									finalTable.setValue(finalTableHeaders[i0], i, radiiandCoords[indicesForFinalTable[i0]].get(i1));
+									i1 = radiiandCoords[0].size();
+								}
 							}
 						} else {
 							finalTable.setValue(finalTableHeaders[i0], i, branchInfoColumns[indicesForFinalTable[i0]][i]);
@@ -1713,30 +1770,56 @@ if(choices[2] == true) {
 				
 				//Display the final table as the branch information table
 				//finalTable.show("Branch Details");
-				finalTable.save(parentDir+"/Branch Details.xls");
+				finalTable.save(parentDir+"/Branch Details.csv");
+
+				//Make a results table of all coordinates from beanShell code incl. radius
+				rt = makeCoordsResults(sortedRadii);
 	
+				//rt.show("3D Coordinates");
+				rt.save(parentDir+"/3D Coords.csv");
+
+				//Get the tagged skeleton (i.e. skeleton with all pixels labelled as slab / end point / junctions) and get values at its points
+				tagSkelV = skel.getResultImage(false);
+				pixelTagVals = getRadiiFunc(tagSkelV, skelJuncs[0]);
+
 				//Create a new results table to output the 3D skeleton information
-				rt = new ResultsTable();
+				rtJ = new ResultsTable();
 				
-				//Create a 2D string array of headers we'll use on our results table
-				String[][] resultsHeaders = {{"X Coordinate", "Y Coordinate", "Z Coordinate"}, {"Calibrated X", "Calibrated Y", "Calibrated Z"}, {"Skeleton Number", "Branch Number", "Coordinate Number"}};
-				
-				//Go through all the table columns and rows, and fill our results table with the appropriate header and values
-				for(columnAdding = 0; columnAdding<3; columnAdding++) {
-					for(rowAdding=0; rowAdding<3; rowAdding++) {
-						for(thirdD = 0; thirdD<coordinateValues[columnAdding][rowAdding].size(); thirdD++) {
-							rt.setValue(resultsHeaders[columnAdding][rowAdding], thirdD, (double) coordinateValues[columnAdding][rowAdding].get(thirdD));
-							
-							//If we're adding our last data to the table, we can now add our radii data as well
-							if(columnAdding==2 && rowAdding ==2) {
-								rt.setValue("Radius", thirdD, sortedRadii[thirdD]);
+				//Create a string array of headers we'll use on our results table
+				String[] resultsHeaders = {"X Coordinate", "Y Coordinate", "Z Coordinate", "Calibrated X", "Calibrated Y", "Calibrated Z", "Skeleton Number", "Branch Number", "Coordinate Number", "Radius", "Tag"};
+
+				//Get the coords, radius, and tagged value for each coordinate from labelled images
+				for(currCoord = 0; currCoord < sortedJuncRadii.length; currCoord++) {
+					double[] output = {sortedJuncRadii[currCoord].xCoord, sortedJuncRadii[currCoord].yCoord,  sortedJuncRadii[currCoord].zCoord,  sortedJuncRadii[currCoord].xCal,  sortedJuncRadii[currCoord].yCal,  sortedJuncRadii[currCoord].zCal,  sortedJuncRadii[currCoord].skelNo,  sortedJuncRadii[currCoord].branchNo,  sortedJuncRadii[currCoord].coordNo,  sortedJuncRadii[currCoord].radius};
+					for(currHeader = 0; currHeader < resultsHeaders.length; currHeader++) {
+						if(currHeader < resultsHeaders.length-1) {
+							rtJ.setValue(resultsHeaders[currHeader], currCoord, output[currHeader]);
+						
+						//If we're looking for the tag label
+						} else {
+
+							//Assign label according to pixel value then store
+							String lab;
+							if(pixelTagVals.get(currCoord) == 127) {
+								lab = "Slab";
+							} else if (pixelTagVals.get(currCoord) == 30) {
+								lab = "Endpoint";
+							} else if (pixelTagVals.get(currCoord) == 70) {
+								lab = "Junction";
+							} else {
+								lab = "Error";
 							}
+							rtJ.setValue(resultsHeaders[currHeader], currCoord, lab);
 						}
 					}
 				}
-				
-				//rt.show("3D Coordinates");
-				rt.save(parentDir+"/3D Coords.xls");
+
+				//rtJ.show("Junc Coords");
+				//Use this for the average radius of each skeleton rather than the
+				//3D coords file since this contains all skeleton points, but currently
+				//unable to identify which branches they belong to
+				//Use this for pericyte stuff?
+				rtJ.save(parentDir+"/All Pixels.csv");
 				
 				//Putting this bit any earlier seems to mess with analyze skeleton..so be careful with it
 				if( WindowManager.getImage("Tagged skeleton") != null) {
