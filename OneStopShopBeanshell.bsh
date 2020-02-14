@@ -1453,13 +1453,14 @@ if(choices[2] == true) {
 	
 				//Now we go through the directory and look for and load the skeleton, distance map, and any mask removed image if it exists
 				for(File imageFind : parentFiles) {
+					
 					if (imageFind.getAbsolutePath().toLowerCase().contains("skeleton") == true) {
 						avg = IJ.openImage(imageFind.getAbsolutePath());
 						
 						//Here we fill our variables with the dimensions of the average image etc.
 						//[0] is width, [1] is height, [2] is channels, [3] is slices, [4] is frames
 						avgDimensions = avg.getDimensions();
-
+						
 						//Get out the ini calibration info
 						iniVariables = getIniByImage(imageChoice, parentFiles, avg);
 
@@ -1471,8 +1472,12 @@ if(choices[2] == true) {
 						for(i=0; i<imageDimensions.length; i++) {
 							avgVolume = imageDimensions[i] * iniVariables[i] * avgVolume;
 						}
+					}
+				}
 
-					} else if(imageFind.getAbsolutePath().toLowerCase().contains("dmap") == true) {
+				for(File imageFind : parentFiles) {
+					
+					if(imageFind.getAbsolutePath().toLowerCase().contains("dmap") == true) {
 						dmap = IJ.openImage(imageFind.getAbsolutePath());
 					} else if(imageFind.getAbsolutePath().toLowerCase().contains("masks") == true) {
 						parsedImage = IJ.openImage(imageFind.getAbsolutePath());
@@ -1484,6 +1489,7 @@ if(choices[2] == true) {
 						
 						//Calculate the volume occupied by a single voxel using calibrated values of width and depth
 						voxelVolume=(iniVariables[0]*iniVariables[1]*iniVariables[2]);
+						
 	
 						//Calculate the volume removed by roi removal
 						volumeRemoved = calculateVolRemoved(parsedImage, voxelVolume);
